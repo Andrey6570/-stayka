@@ -61,6 +61,6 @@ jobs:
           cp "$APK" stayka.apk
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest stayka.apk \
-            --title "Стая, сборка №${GITHUB_RUN_NUMBER}" \
+            --title "Стайка, сборка №${GITHUB_RUN_NUMBER}" \
             --notes "Сборка из коммита ${GITHUB_SHA::7}. Скачайте stayka.apk на телефон и установите." \
             --target "$GITHUB_SHA"

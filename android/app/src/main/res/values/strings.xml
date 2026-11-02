@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Стая</string>
-    <string name="title_activity_main">Стая</string>
+    <string name="app_name">Стайка</string>
+    <string name="title_activity_main">Стайка</string>
     <string name="package_name">com.andrey6570.stayka</string>
     <string name="custom_url_scheme">com.andrey6570.stayka</string>
 </resources>

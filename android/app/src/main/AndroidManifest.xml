@@ -22,6 +22,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Receive a place shared from Google Maps (Share -> Stayka). No extra permission is needed. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
         </activity>
 
         <provider
@@ -35,6 +42,6 @@
         </provider>
     </application>
 
-    <!-- Only what the app needs now: no push, location, contacts or camera. -->
+    <!-- Only what the app needs now: no push, location, contacts or camera. Maps links open in the Google Maps app. -->
     <uses-permission android:name="android.permission.INTERNET" />
 </manifest>
