@@ -405,7 +405,8 @@ function render() {
   $("#logo").innerHTML = x("стайка", "stayka", "στάικα") + "<i>.</i>";
   $("#foot").textContent = syncNote();
   $("#meBtn").innerHTML = av("me"); $("#meBtn").setAttribute("aria-label", x("Профиль и приватность", "Profile and privacy", "Προφίλ και απόρρητο"));
-  $("#groups").innerHTML = Object.keys(S.groups).map(id => `<button class="gchip ${id === S.gid ? "on" : ""}" data-act="group" data-id="${id}">${esc(d(S.groups[id].name))}</button>`).join("") + `<button class="gchip add" data-act="newGroup" aria-label="${x("Новая компания", "New group", "Νέα ομάδα")}">＋</button>`;
+  $("#groups").innerHTML = Object.keys(S.groups).map(id => `<button class="gchip ${id === S.gid ? "on" : ""}" data-act="group" data-id="${id}">${esc(d(S.groups[id].name))}</button>`).join("");
+  $("#gAdd").setAttribute("aria-label", x("Новая компания", "New group", "Νέα ομάδα"));
   $("#tabs").innerHTML = tabs().map(([id, nm]) => `<button class="tab ${id === S.tab ? "on" : ""}" data-act="goto" data-id="${id}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[id]}</svg>${nm}</button>`).join("");
   const views = { today: vToday, lunch: vLunch, poll: vPoll, events: vEvents, games: vGames }, keep = $("#newOpt") ? $("#newOpt").value : "";
   $("#view").innerHTML = views[S.tab]();
