@@ -1,4 +1,4 @@
-import { GAMES, CATS, LI, cardsOf, isAdult, cardText } from "./games.js";
+import { GAMES, CATS, LI, LEVELS, cardsOf, isAdult, cardText } from "./games.js";
 import { parseMapsText, mapUrl, routeUrl, searchUrl, hasPlace, cleanGeo } from "./maps.js";
 import { PALETTES } from "./themes.js";
 import { config } from "./firebase-config.js";
@@ -77,6 +77,7 @@ function fix() {
   S.profile = S.profile || { name: "", avatar: "" };
   S.theme = S.theme || { pal: "stayka", mode: "auto" };
   S.people = S.people || {};
+  S.gs = S.gs || {};
   Object.keys(S.groups).forEach(k => { const g = S.groups[k]; if (!g.code) g.code = makeCode(); if ((k === "office" || k === "friends") && !g.sync) g.demo = true; });
 }
 fix();
@@ -205,25 +206,71 @@ function vToday() {
 }
 
 // ---------- games ----------
+const LOCK = '<svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;vertical-align:-2px"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>';
 function vGames() {
-  return `<div class="card"><button class="sw ${S.dry ? "on" : ""}" data-act="dry" role="switch" aria-checked="${S.dry}"><span class="track"></span><span class="grow"><b>${x("Без алкоголя", "Alcohol-free mode", "Χωρίς αλκοόλ")}</b><br><span class="muted">${x("Вместо глотка: вода или штрафное задание", "Water or a forfeit instead of a drink", "Νερό ή ποινή αντί για ποτό")}</span></span></button></div>`
-    + CATS.map(c => `<div class="sec"><h3>${esc(d(c.name))}</h3>${c.adult ? '<span class="tag18">18+</span>' : ""}</div>
-      <div class="gamegrid">${c.ids.map(id => `<button class="tile" data-act="game" data-id="${id}"><b>${esc(d(GAMES[id].name))}</b><span class="muted">${esc(d(GAMES[id].desc))}</span><span class="muted">${cardsOf(id).length} ${x("карточек", "cards", "κάρτες")}</span></button>`).join("")}</div>`).join("");
+  const ad = S.adult;
+  return `<div class="card"><div><b>${x("Игры 18+", "18+ games", "Παιχνίδια 18+")}: ${ad ? x("открыты", "unlocked", "ξεκλείδωτα") : x("закрыты", "locked", "κλειδωμένα")}</b></div>
+      <div class="muted">${ad ? x("Вы подтвердили, что вам есть 18. Открыты разделы «С алкоголем», «18+ Компания» и «18+ Разговоры». «Для ума» и «Микс» доступны всем.", "You confirmed you are 18 or older. “Drinking games”, “18+ Party” and “18+ Conversations” are unlocked. “Brain games” and “Mixed” are open to everyone.", "Επιβεβαιώσατε ότι είστε 18+. Οι ενότητες «Με αλκοόλ», «18+ Παρέα» και «18+ Συζητήσεις» είναι ανοιχτές. Τα «Για το μυαλό» και «Μίξ» είναι για όλους.") : x("Разделы с пометкой 🔒 откроются после подтверждения, что вам есть 18. «Для ума» и «Микс» доступны всем без подтверждения.", "Sections marked 🔒 open once you confirm you are 18 or older. “Brain games” and “Mixed” are open to everyone with no confirmation.", "Οι ενότητες με 🔒 ανοίγουν όταν επιβεβαιώσετε ότι είστε 18+. Τα «Για το μυαλό» και «Μίξ» είναι για όλους χωρίς επιβεβαίωση.")}</div>
+      <button class="btn ${ad ? "ghost" : "lemon"}" data-act="adultHome">${ad ? x("Скрыть игры 18+", "Hide 18+ games", "Απόκρυψη παιχνιδιών 18+") : x("Мне есть 18: открыть", "I am 18+: unlock", "Είμαι 18+: ξεκλείδωμα")}</button></div>
+    <div class="card"><button class="sw ${S.dry ? "on" : ""}" data-act="dry" role="switch" aria-checked="${S.dry}"><span class="track"></span><span class="grow"><b>${x("Без алкоголя", "Alcohol-free mode", "Χωρίς αλκοόλ")}</b><br><span class="muted">${x("Это отдельная настройка и от 18+ не зависит: везде, где в правилах «глоток», будет вода или штрафное задание", "A separate setting, independent of 18+: wherever a rule says “a sip”, it becomes water or a forfeit", "Ξεχωριστή ρύθμιση, ανεξάρτητη από το 18+: όπου ο κανόνας λέει «γουλιά», γίνεται νερό ή ποινή")}</span></span></button></div>`
+    + CATS.map(c => { const lock = c.adult && !ad; return `<div class="sec"><h3>${esc(d(c.name))}</h3>${c.adult ? `<span class="tag18">${lock ? LOCK + " " : ""}18+</span>` : ""}</div>
+      <div class="gamegrid">${c.ids.map(id => `<button class="tile ${lock ? "locked" : ""}" data-act="game" data-id="${id}"><b>${esc(d(GAMES[id].name))}</b><span class="muted">${esc(d(GAMES[id].desc))}</span><span class="muted">${GAMES[id].levels ? x("3 уровня сложности · таймер", "3 difficulty levels · timer", "3 επίπεδα δυσκολίας · χρονόμετρο") : cardsOf(id).length + " " + x("карточек", "cards", "κάρτες") + (GAMES[id].setup ? " · " + x("таймер", "timer", "χρονόμετρο") : "")}</span></button>`).join("")}</div>`; }).join("");
+}
+
+// ---------- game sheet: setup (difficulty, timer) -> play ----------
+const LV = { easy: X("Легко", "Easy", "Εύκολο"), mid: X("Средне", "Medium", "Μέτριο"), hard: X("Сложно", "Hard", "Δύσκολο") };
+const LVD = { easy: X("Школьные факты, для разогрева", "School-level facts, a warm-up", "Σχολικές γνώσεις, για ζέσταμα"), mid: X("Нужно подумать", "Takes some thinking", "Θέλει σκέψη"), hard: X("Для знатоков: история, наука, культура", "For experts: history, science, culture", "Για γνώστες: ιστορία, επιστήμη, πολιτισμός") };
+const gameCfg = id => { const st = GAMES[id].setup || {}, c = S.gs[id] || {}; return { lvl: c.lvl || "easy", timer: c.timer !== undefined ? c.timer : (st.timer || 0) }; };
+function newGame(id) {
+  const g = GAMES[id], cfg = gameCfg(id);
+  open("game", Object.assign({ id, stage: g.setup ? "setup" : "play", pos: 0, turn: 0, score: 0, show: false, tEnd: 0, tDone: false, deck: shuffle(cardsOf(id, cfg.lvl).length) }, cfg));
+  if (!g.setup) stopTimer();
+}
+let tmr = null;
+const stopTimer = () => { if (tmr) { clearInterval(tmr); tmr = null; } };
+function beep() { try { const C = window.AudioContext || window.webkitAudioContext, c = new C(), o = c.createOscillator(), gn = c.createGain(); o.connect(gn); gn.connect(c.destination); o.frequency.value = 880; gn.gain.value = .2; o.start(); o.stop(c.currentTime + .6); setTimeout(() => c.close(), 900); } catch (e) {} }
+function startTimer() {
+  stopTimer(); sheet.tDone = false; if (!sheet.timer) { sheet.tEnd = 0; return; }
+  sheet.tTotal = sheet.timer; sheet.tEnd = Date.now() + sheet.timer * 1000;
+  tmr = setInterval(() => {
+    if (!sheet || sheet.kind !== "game" || !sheet.tEnd) { stopTimer(); return; }
+    const left = Math.max(0, sheet.tEnd - Date.now()), el = $("#tm"), bar = $("#tbar");
+    if (el) { el.textContent = Math.ceil(left / 1000); if (bar) bar.style.width = (left / (sheet.tTotal * 1000) * 100) + "%"; el.closest(".timer").classList.toggle("low", left <= 5000); }
+    if (left <= 0) { stopTimer(); sheet.tDone = true; sheet.rerender = true; beep(); render(); }
+  }, 250);
 }
 function sGame() {
-  const id = sheet.id, g = GAMES[id], cards = cardsOf(id), idx = sheet.deck[sheet.pos % cards.length], who = G().members[sheet.pos % G().members.length];
-  let text, ans = "";
-  if (g.trivia) { const qa = cards[idx][LI[lang]]; text = qa[0]; if (sheet.show) ans = qa[1]; } else text = cardText(id, cards[idx], lang);
+  const id = sheet.id, g = GAMES[id], st = g.setup || {};
   const warn = g.cat === "alc" ? `<div class="notice">${x("Только 18+. Пейте в меру: можно заменить на воду или сок. Не садитесь за руль.", "18+ only. Drink responsibly: water or juice is always fine. Never drive after drinking.", "Μόνο 18+. Πίνετε υπεύθυνα: νερό ή χυμός είναι πάντα εντάξει. Μην οδηγείτε μετά το ποτό.")}</div>` : "";
-  const trivia = g.trivia;
-  return `<div class="row"><span class="eyebrow grow">${esc(d(CATS.find(c => c.ids.includes(id)).name))}</span>${isAdult(id) ? '<span class="tag18">18+</span>' : ""}</div>
-    <h2>${esc(d(g.name))}</h2><div class="notice">${esc(ruleOf(id))}</div>${warn}
-    <div class="row"><span class="face">${av(who)}${x("Ходит", "Turn", "Σειρά του")}: ${esc(pname(who))}</span><span class="muted grow" style="text-align:right">${(sheet.pos % cards.length) + 1} / ${cards.length}</span></div>
-    <div class="gcard">${esc(text)}${ans ? `<div class="ans">${esc(ans)}</div>` : ""}</div>
-    <div class="btns">${trivia && !sheet.show ? `<button class="btn lemon" data-act="showAns">${x("Показать ответ", "Show answer", "Εμφάνιση απάντησης")}</button>` : ""}<button class="btn" data-act="nextCard">${x("Дальше", "Next", "Επόμενη")}</button>${g.cat === "talk" ? `<button class="btn ghost" data-act="nextCard">${x("Пропустить", "Skip", "Παράλειψη")}</button>` : ""}</div>
+  const head = `<div class="row"><span class="eyebrow grow">${esc(d(CATS.find(c => c.ids.includes(id)).name))}</span>${isAdult(id) ? '<span class="tag18">18+</span>' : ""}</div><h2>${esc(d(g.name))}</h2><div class="notice">${esc(ruleOf(id))}</div>${warn}`;
+  if (sheet.stage === "setup") {
+    const lv = st.levels ? `<div><div class="muted" style="margin-bottom:6px">${x("Сложность", "Difficulty", "Δυσκολία")}</div><div class="langs">${LEVELS.map(l => `<button class="btn ghost ${sheet.lvl === l ? "sel" : ""}" data-act="gLvl" data-id="${l}">${esc(d(LV[l]))}</button>`).join("")}</div><div class="muted" style="margin-top:6px">${esc(d(LVD[sheet.lvl]))} · ${cardsOf(id, sheet.lvl).length} ${x("вопросов", "questions", "ερωτήσεις")}</div></div>` : "";
+    const tm = st.timers ? `<div><div class="muted" style="margin-bottom:6px">${g.round ? x("Таймер раунда", "Round timer", "Χρονόμετρο γύρου") : x("Таймер на карточку", "Timer per card", "Χρονόμετρο ανά κάρτα")}</div><div class="btns">${st.timers.map(t => `<button class="btn ghost ${sheet.timer === t ? "sel" : ""}" data-act="gTimer" data-v="${t}">${t ? t + " " + x("сек", "sec", "δευτ.") : x("Без таймера", "No timer", "Χωρίς χρονόμετρο")}</button>`).join("")}</div><div class="muted" style="margin-top:6px">${g.round ? x("Раунд заканчивается сигналом, и очередь переходит к следующему игроку.", "The round ends with a beep and the turn passes to the next player.", "Ο γύρος τελειώνει με ήχο και η σειρά περνά στον επόμενο παίκτη.") : x("Когда время выйдет, прозвучит сигнал.", "A beep sounds when time is up.", "Όταν λήξει ο χρόνος, ακούγεται ήχος.")}</div></div>` : "";
+    return head + lv + tm + `<button class="btn" data-act="gStart">${x("Начать", "Start", "Έναρξη")}</button><button class="btn ghost" data-act="close">${x("Назад", "Back", "Πίσω")}</button>`;
+  }
+  const cards = cardsOf(id, sheet.lvl), idx = sheet.deck[sheet.pos % cards.length], members = G().members, who = members[sheet.turn % members.length];
+  const over = sheet.tDone && g.round;
+  let body;
+  if (over) body = `<div class="gcard"><div>${x("Время!", "Time's up!", "Τέλος χρόνου!")}</div><div class="ans">${x("Угадано", "Guessed", "Βρέθηκαν")}: ${sheet.score}</div></div>`;
+  else if (g.taboo) { const c = cards[idx][LI[lang]]; body = `<div class="gcard"><div>${esc(c[0])}</div><div class="taboo"><span>${x("Нельзя говорить", "Do not say", "Απαγορεύονται")}:</span> ${c.slice(1).map(w => `<b>${esc(w)}</b>`).join("")}</div></div>`; }
+  else if (g.trivia) { const qa = cards[idx][LI[lang]]; body = `<div class="gcard">${esc(qa[0])}${sheet.show ? `<div class="ans">${esc(qa[1])}</div>` : ""}</div>`; }
+  else body = `<div class="gcard">${esc(cardText(id, cards[idx], lang))}</div>`;
+  const left = sheet.tEnd ? Math.max(0, sheet.tEnd - Date.now()) : 0;
+  const timer = sheet.tEnd ? `<div class="timer ${left <= 5000 ? "low" : ""} ${sheet.tDone ? "done" : ""}"><b id="tm">${sheet.tDone ? "0" : Math.ceil(left / 1000)}</b><span class="bar"><i id="tbar" style="width:${sheet.tDone ? 0 : left / (sheet.tTotal * 1000) * 100}%"></i></span>${sheet.tDone && !g.round ? `<span class="tup">${x("Время вышло", "Time's up", "Τέλος χρόνου")}</span>` : ""}</div>` : "";
+  let btns;
+  if (g.taboo) btns = over ? `<button class="btn" data-act="gRound">${x("Следующий игрок", "Next player", "Επόμενος παίκτης")}</button>` : `<button class="btn lemon" data-act="gOk">${x("Угадали", "Guessed", "Το βρήκαν")}</button><button class="btn ghost" data-act="gSkip">${x("Пропустить слово", "Skip word", "Παράλειψη λέξης")}</button>${sheet.timer ? "" : `<button class="btn ghost" data-act="gRound">${x("Сменить игрока", "Change player", "Αλλαγή παίκτη")}</button>`}`;
+  else btns = `${g.trivia && !sheet.show ? `<button class="btn lemon" data-act="showAns">${x("Показать ответ", "Show answer", "Εμφάνιση απάντησης")}</button>` : ""}<button class="btn" data-act="nextCard">${x("Дальше", "Next", "Επόμενη")}</button>${g.cat === "talk" ? `<button class="btn ghost" data-act="nextCard">${x("Пропустить", "Skip", "Παράλειψη")}</button>` : ""}`;
+  const lvl = st.levels ? ` · ${esc(d(LV[sheet.lvl]))}` : "";
+  return head + `<div class="row"><span class="face">${av(who)}${esc(d(g.role))}: ${esc(pname(who))}</span><span class="muted grow" style="text-align:right">${g.taboo ? x("Угадано", "Guessed", "Βρέθηκαν") + ": " + sheet.score : (sheet.pos % cards.length) + 1 + " / " + cards.length + lvl}</span></div>
+    <div class="muted">${g.round ? x("Очередь переходит по кругу к следующему игроку после каждого раунда: объясняет тот, чьё имя выше.", "The turn passes round the group after each round: the person named above explains.", "Η σειρά περνά κυκλικά στον επόμενο μετά από κάθε γύρο: εξηγεί αυτός που αναγράφεται πάνω.") : x("Очередь переходит по кругу после каждой карточки: так участвуют все. Имя выше показывает, кто сейчас в роли ведущего этой карточки.", "The turn passes round the group after every card so everyone takes part. The name above is whose turn it is for this card.", "Η σειρά περνά κυκλικά μετά από κάθε κάρτα ώστε να συμμετέχουν όλοι. Το όνομα πάνω δείχνει ποιανού η σειρά είναι για αυτή την κάρτα.")}</div>
+    ${timer}${body}
+    <div class="btns">${btns}</div>
     <button class="btn ghost" data-act="close">${x("Закрыть", "Close", "Κλείσιμο")}</button>`;
 }
-const sAge = () => `<h2>${x("Только для взрослых", "Adults only", "Μόνο για ενήλικες")}</h2><p class="muted">${x("Эти игры предназначены для людей от 18 лет. Подтверждая, вы заявляете, что вам есть 18. Разделы с алкоголем не призывают пить: можно играть с водой или включить режим без алкоголя.", "These games are for people aged 18 and over. By confirming you declare that you are 18 or older. The drinking games never require alcohol: play with water or switch on alcohol-free mode.", "Αυτά τα παιχνίδια είναι για άτομα άνω των 18. Επιβεβαιώνοντας δηλώνετε ότι είστε 18 ετών και άνω. Τα παιχνίδια με αλκοόλ δεν απαιτούν αλκοόλ: παίξτε με νερό ή ενεργοποιήστε τη λειτουργία χωρίς αλκοόλ.")}</p>
+const sAge = () => `<h2>${x("Только для взрослых", "Adults only", "Μόνο για ενήλικες")}</h2>
+  <p class="muted">${x("Игры 18+ предназначены для людей от 18 лет. Подтвердив, что вам есть 18, вы откроете три раздела:", "18+ games are for people aged 18 and over. By confirming you are 18 or older you unlock three sections:", "Τα παιχνίδια 18+ είναι για άτομα άνω των 18. Επιβεβαιώνοντας ότι είστε 18+ ξεκλειδώνετε τρεις ενότητες:")}</p>
+  <div class="notice"><b>${x("С алкоголем", "Drinking games", "Με αλκοόλ")}</b>: ${x("кто-то делает глоток", "someone takes a sip", "κάποιος πίνει γουλιά")}<br><b>${x("18+ Компания", "18+ Party", "18+ Παρέα")}</b>: ${x("взрослые темы и шутки, без пошлости", "grown-up topics and jokes, never crude", "θέματα και αστεία για ενήλικες, χωρίς χοντράδες")}<br><b>${x("18+ Разговоры", "18+ Conversations", "18+ Συζητήσεις")}</b>: ${x("личные и острые вопросы", "personal and provocative questions", "προσωπικές και προκλητικές ερωτήσεις")}</div>
+  <p class="muted">${x("«Для ума» и «Микс» доступны всем без подтверждения. Алкоголь не обязателен: режим «Без алкоголя» заменяет глоток водой. Отметка хранится только на вашем телефоне, отозвать её можно кнопкой «Скрыть игры 18+» или в профиле.", "“Brain games” and “Mixed” are open to everyone with no confirmation. Alcohol is never required: “Alcohol-free mode” swaps the sip for water. The tick is kept only on your phone; take it back with “Hide 18+ games” or in the profile.", "Τα «Για το μυαλό» και «Μίξ» είναι για όλους χωρίς επιβεβαίωση. Το αλκοόλ δεν είναι υποχρεωτικό: η λειτουργία «Χωρίς αλκοόλ» αντικαθιστά τη γουλιά με νερό. Η επιλογή μένει μόνο στο κινητό σας· την ανακαλείτε με «Απόκρυψη παιχνιδιών 18+» ή στο προφίλ.")}</p>
   <button class="btn" data-act="ageYes">${x("Мне есть 18 лет", "I am 18 or older", "Είμαι 18 ετών ή μεγαλύτερος")}</button><button class="btn ghost" data-act="close">${x("Назад", "Back", "Πίσω")}</button>`;
 
 // ---------- privacy ----------
@@ -266,7 +313,7 @@ function sProfile() {
     <div><div class="muted" style="margin-bottom:6px">${x("Светлая или тёмная", "Light or dark", "Φωτεινό ή σκούρο")}</div>
       <div class="langs">${[["auto", x("Как в системе", "System", "Σύστημα")], ["light", x("Светлая", "Light", "Φωτεινό")], ["dark", x("Тёмная", "Dark", "Σκούρο")]].map(([k, n]) => `<button class="btn ghost ${S.theme.mode === k ? "sel" : ""}" data-act="mode" data-id="${k}">${n}</button>`).join("")}</div></div>
     <button class="sw ${S.consent && S.consent.push ? "on" : ""}" data-act="push" role="switch" aria-checked="${!!(S.consent && S.consent.push)}"><span class="track"></span><span class="grow">${x("Уведомления", "Notifications", "Ειδοποιήσεις")}</span></button>
-    <button class="sw ${S.adult ? "on" : ""}" data-act="adultToggle" role="switch" aria-checked="${S.adult}"><span class="track"></span><span class="grow">${x("Мне 18+, показывать взрослые игры", "I am 18+, show adult games", "Είμαι 18+, εμφάνιση παιχνιδιών για ενήλικες")}</span></button>
+    <button class="sw ${S.adult ? "on" : ""}" data-act="adultToggle" role="switch" aria-checked="${S.adult}"><span class="track"></span><span class="grow">${x("Мне 18+, открыть игры 18+", "I am 18+, unlock 18+ games", "Είμαι 18+, ξεκλείδωμα παιχνιδιών 18+")}<br><span class="muted">${x("Откроет «С алкоголем», «18+ Компания» и «18+ Разговоры» во вкладке «Игры»", "Unlocks “Drinking games”, “18+ Party” and “18+ Conversations” in the Games tab", "Ξεκλειδώνει τα «Με αλκοόλ», «18+ Παρέα» και «18+ Συζητήσεις» στην καρτέλα «Παιχνίδια»")}</span></span></button>
     <div class="notice">${x("Ваши права по GDPR", "Your GDPR rights", "Τα δικαιώματά σας βάσει GDPR")}${S.consent ? " · " + x("согласие дано", "consent given", "συγκατάθεση δόθηκε") + " " + new Date(S.consent.ts).toLocaleDateString(LOC[lang]) : ""}</div>
     <button class="btn ghost" data-act="myData">${x("Мои данные (доступ и перенос)", "My data (access and portability)", "Τα δεδομένα μου (πρόσβαση και φορητότητα)")}</button>
     <button class="btn ghost" data-act="policy">${x("Политика конфиденциальности", "Privacy notice", "Πολιτική απορρήτου")}</button>
@@ -371,6 +418,7 @@ function render() {
       sheet.rerender = false;
     }
   } else $("#sheetHost").innerHTML = "";
+  if (!sheet || sheet.kind !== "game") stopTimer();
 }
 const open = (kind, extra) => { sheet = Object.assign({ kind, rerender: true }, extra || {}); render(); };
 
@@ -465,6 +513,15 @@ const syncNote = () => {
     : x("Данные хранятся только на этом телефоне. Синхронизация между друзьями будет позже", "Data is stored on this phone only. Sync between friends comes later", "Τα δεδομένα αποθηκεύονται μόνο σε αυτό το κινητό. Ο συγχρονισμός μεταξύ φίλων έρχεται αργότερα");
 };
 
+// Next card; the turn passes on after every card unless the game plays in timed rounds.
+function advance(keepTurn) {
+  const g = GAMES[sheet.id]; sheet.pos++; sheet.show = false;
+  const n = cardsOf(sheet.id, sheet.lvl).length; if (sheet.pos % n === 0) sheet.deck = shuffle(n);
+  if (!g.round && !keepTurn) sheet.turn++;
+  if (!g.round && sheet.timer) startTimer();
+  sheet.rerender = true; render();
+}
+
 // ---------- actions ----------
 const A = {
   group: id => { S.gid = id; save(); },
@@ -500,10 +557,17 @@ const A = {
   },
   rsvp: (id, v) => { const e = G().events.find(z => z.id === id); e.rsvp.me = e.rsvp.me === v ? null : v; if (!e.rsvp.me) delete e.rsvp.me; const sg = SG(); if (sg) sy.rsvp(sg.code, id, S.uid, e.rsvp.me || null).catch(() => {}); save(); },
   dry: () => { S.dry = !S.dry; save(); },
-  game: id => { if (isAdult(id) && !S.adult) { open("age", { next: id }); return; } open("game", { id, deck: shuffle(cardsOf(id).length), pos: 0, show: false }); },
-  ageYes: () => { S.adult = true; persist(); const n = sheet.next; open("game", { id: n, deck: shuffle(cardsOf(n).length), pos: 0, show: false }); },
-  showAns: () => { sheet.show = true; sheet.rerender = true; render(); },
-  nextCard: () => { sheet.pos++; sheet.show = false; const n = cardsOf(sheet.id).length; if (sheet.pos % n === 0) sheet.deck = shuffle(n); sheet.rerender = true; render(); },
+  game: id => { if (isAdult(id) && !S.adult) { open("age", { next: id }); return; } newGame(id); },
+  adultHome: () => { if (S.adult) { S.adult = false; save(); } else open("age", { next: null }); },
+  ageYes: () => { S.adult = true; persist(); const n = sheet.next; if (n) newGame(n); else { sheet = null; save(); toast(x("Игры 18+ открыты", "18+ games unlocked", "Τα παιχνίδια 18+ ξεκλειδώθηκαν")); } },
+  gLvl: id => { S.gs[sheet.id] = Object.assign(S.gs[sheet.id] || {}, { lvl: id }); sheet.lvl = id; sheet.deck = shuffle(cardsOf(sheet.id, id).length); sheet.rerender = true; save(); },
+  gTimer: v => { const t = +v; S.gs[sheet.id] = Object.assign(S.gs[sheet.id] || {}, { timer: t }); sheet.timer = t; sheet.rerender = true; save(); },
+  gStart: () => { sheet.stage = "play"; sheet.pos = 0; sheet.turn = 0; sheet.score = 0; sheet.show = false; startTimer(); sheet.rerender = true; render(); },
+  gOk: () => { sheet.score++; advance(); },
+  gSkip: () => advance(),
+  gRound: () => { sheet.turn++; sheet.score = 0; startTimer(); advance(true); },
+  showAns: () => { sheet.show = true; stopTimer(); sheet.tEnd = 0; sheet.tDone = false; sheet.rerender = true; render(); },
+  nextCard: () => advance(),
   profile: () => open("profile", { confirmDel: false }),
   policy: () => open("policy"),
   myData: () => open("mydata"),

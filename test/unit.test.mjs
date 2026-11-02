@@ -6,11 +6,12 @@ const LANGS = ["ru", "en", "el"];
 
 test("every game has 150 cards in three languages", () => {
   for (const [id, g] of Object.entries(GAMES)) {
-    assert.equal(g.cards.length, 150, id + " must have 150 cards");
+    assert.ok(g.cards.length >= 150, id + " must have at least 150 cards");
     for (const [i, c] of g.cards.entries()) {
       assert.equal(c.length, 3, id + " card " + i + " must have ru, en, el");
       for (const part of c) {
-        if (g.trivia) { assert.ok(Array.isArray(part) && part.length === 2 && part.every(s => typeof s === "string" && s.trim()), id + " card " + i); }
+        if (g.taboo) { assert.ok(Array.isArray(part) && part.length === 4 && part.every(s => typeof s === "string" && s.trim()), id + " card " + i); }
+        else if (g.trivia) { assert.ok(Array.isArray(part) && part.length === 2 && part.every(s => typeof s === "string" && s.trim()), id + " card " + i); }
         else assert.ok(typeof part === "string" && part.trim(), id + " card " + i);
       }
     }
@@ -100,4 +101,32 @@ test("sync model: events, members and defaults", () => {
   assert.deepEqual(m.members, ["me", "u3", "u2"]); assert.equal(m.people.u3.avatar, ""); assert.ok(m.people.u2.avatar);
   assert.deepEqual(lunchFromRemote(null, "u1"), { place: "", time: "13:00", by: null, resp: {} });
   assert.equal(CODE_LEN, 8);
+});
+
+import { cardsOf, isAdult, LEVELS } from "../src/games.js";
+
+test("trivia has three difficulty levels with valid, distinct questions", () => {
+  const min = { easy: 150, mid: 60, hard: 95 }, all = new Set();
+  for (const lvl of LEVELS) {
+    const cards = cardsOf("trivia", lvl); assert.ok(cards.length >= min[lvl], lvl + " has " + cards.length);
+    for (const c of cards) {
+      assert.equal(c.length, 3);
+      for (const qa of c) assert.ok(Array.isArray(qa) && qa.length === 2 && qa.every(t => typeof t === "string" && t.trim()), lvl + " " + JSON.stringify(c).slice(0, 60));
+      const key = c[1][0].toLowerCase(); assert.ok(!all.has(key), "question repeats across levels: " + key); all.add(key);
+    }
+  }
+  assert.equal(cardsOf("quizpen", "hard"), cardsOf("trivia", "hard"));
+});
+
+test("explain game: forbidden words differ from the word, three per card", () => {
+  for (const c of cardsOf("explain")) for (const [i, part] of c.entries()) {
+    const [word, ...bad] = part.map(w => w.toLowerCase());
+    assert.equal(bad.length, 3); assert.ok(!bad.includes(word), "forbidden word equals the word: " + word + " (" + i + ")");
+    assert.equal(new Set(bad).size, 3, "repeated forbidden words on " + word);
+  }
+});
+
+test("adult flag follows the category", () => {
+  assert.ok(isAdult("explain") && isAdult("never") && isAdult("spicy"));
+  assert.ok(!isAdult("trivia") && !isAdult("charades") && !isAdult("dares"));
 });
