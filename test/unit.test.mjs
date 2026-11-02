@@ -74,3 +74,30 @@ test("colour schemes: readable text on every background", () => {
       assert.ok(cr(t[a], t[b]) >= 4.5, p.id + " " + m + " " + a + "/" + b);
   }
 });
+
+import { lunchFromRemote, lunchToRemote, pollFromRemote, pollToRemote, eventFromRemote, eventToRemote, membersFromRemote, CODE_LEN } from "../src/sync-model.js";
+
+test("sync model: my uid becomes 'me' and back", () => {
+  const l = lunchFromRemote({ place: "Pizza", time: "13:00", by: "u1", resp: { u1: "in", u2: "out", u3: "bogus" } }, "u1");
+  assert.deepEqual(l, { place: "Pizza", time: "13:00", by: "me", resp: { me: "in", u2: "out" } });
+  assert.deepEqual(lunchToRemote(l, "u1").resp, { u1: "in", u2: "out" });
+  assert.equal(lunchToRemote(l, "u1").by, "u1");
+});
+
+test("sync model: poll votes map <-> option arrays", () => {
+  const remote = { q: "Where?", opts: [{ id: "a", name: "Bar" }, { id: "b", name: "Pub", geo: { lat: 1, lng: 2 } }], votes: { u1: "b", u2: "b", u3: "a" }, win: null };
+  const p = pollFromRemote(remote, "u1");
+  assert.deepEqual(p.opts.map(o => o.votes), [["u3"], ["me", "u2"]]);
+  assert.deepEqual(p.opts[1].geo, { lat: 1, lng: 2 });
+  assert.deepEqual(pollToRemote(p, "u1").votes, { u1: "b", u2: "b", u3: "a" });
+});
+
+test("sync model: events, members and defaults", () => {
+  const e = eventFromRemote("e1", { title: "Quiz", place: "Pub", date: "2026-11-05", time: "20:00", by: "u2", rsvp: { u1: "yes", u2: "maybe" } }, "u1");
+  assert.equal(e.by, "u2"); assert.deepEqual(e.rsvp, { me: "yes", u2: "maybe" });
+  assert.equal(eventToRemote({ id: "e1", title: "Quiz", date: "2026-11-05", rsvp: { me: "yes" } }, "u1").rsvp.u1, "yes");
+  const m = membersFromRemote([{ uid: "u1", name: "Me" }, { uid: "u2", name: "Zed", avatar: "data:image/jpeg;base64,AA" }, { uid: "u3", name: "Amy", avatar: "javascript:x" }], "u1");
+  assert.deepEqual(m.members, ["me", "u3", "u2"]); assert.equal(m.people.u3.avatar, ""); assert.ok(m.people.u2.avatar);
+  assert.deepEqual(lunchFromRemote(null, "u1"), { place: "", time: "13:00", by: null, resp: {} });
+  assert.equal(CODE_LEN, 8);
+});

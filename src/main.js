@@ -1,6 +1,8 @@
 import { GAMES, CATS, LI, cardsOf, isAdult, cardText } from "./games.js";
 import { parseMapsText, mapUrl, routeUrl, searchUrl, hasPlace, cleanGeo } from "./maps.js";
 import { PALETTES } from "./themes.js";
+import { config } from "./firebase-config.js";
+import { CODE_LEN, lunchFromRemote, lunchToRemote, pollFromRemote, pollToRemote, eventFromRemote, eventToRemote, membersFromRemote } from "./sync-model.js";
 
 
 const $ = s => document.querySelector(s);
@@ -26,10 +28,13 @@ const PEOPLE = {
   me: { c: "#E8472F" }, anna: { c: "#2B7A78", n: ["Аня", "Anya", "Άνια"] }, dima: { c: "#5B4B8A", n: ["Дима", "Dima", "Ντίμα"] }, lena: { c: "#B5651D", n: ["Лена", "Lena", "Λένα"] },
   max: { c: "#3A6EA5", n: ["Макс", "Max", "Μαξ"] }, ira: { c: "#8A3F6B", n: ["Ира", "Ira", "Ίρα"] }, oleg: { c: "#4F6D2F", n: ["Олег", "Oleg", "Όλεγκ"] }
 };
-const pname = id => id === "me" ? ((S.profile && S.profile.name) || x("Вы", "You", "Εσύ")) : pick(PEOPLE[id].n);
+const other = id => (S.people && S.people[id]) || {};
+const pname = id => id === "me" ? ((S.profile && S.profile.name) || x("Вы", "You", "Εσύ")) : PEOPLE[id] ? pick(PEOPLE[id].n) : (other(id).name || x("Участник", "Member", "Μέλος"));
+const pcol = id => PEOPLE[id] ? PEOPLE[id].c : WCOL[Array.from(String(id)).reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % WCOL.length];
 const av = id => {
-  if (id === "me" && S.profile && S.profile.avatar) return `<img class="av" src="${S.profile.avatar}" alt="">`;
-  return `<span class="av" style="background:${PEOPLE[id].c}">${esc(Array.from(pname(id))[0] || "?")}</span>`;
+  const pic = id === "me" ? S.profile && S.profile.avatar : other(id).avatar;
+  if (pic) return `<img class="av" src="${pic}" alt="">`;
+  return `<span class="av" style="background:${pcol(id)}">${esc(Array.from(pname(id))[0] || "?")}</span>`;
 };
 const TIMES = ["12:30", "13:00", "13:30", "14:00"];
 
@@ -37,6 +42,7 @@ const TIMES = ["12:30", "13:00", "13:30", "14:00"];
 function seed() {
   return {
     v: 2, gid: "office", tab: "today", lang, adult: false, dry: true, theme: { pal: "stayka", mode: "auto" }, consent: null, profile: { name: "", avatar: "" },
+    people: {},
     groups: {
       office: {
         name: X("Офис, 3 этаж", "Office, 3rd floor", "Γραφείο, 3ος όροφος"), members: ["me", "anna", "dima", "lena", "max"],
@@ -66,11 +72,12 @@ if (!S || !S.groups) S = seed();
 S.profile = S.profile || { name: "", avatar: "" };
 // Invite code: 6 characters without look-alikes (no 0/O, 1/I).
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const makeCode = () => Array.from({ length: 6 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join("");
+const makeCode = () => Array.from({ length: CODE_LEN }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join("");
 function fix() {
   S.profile = S.profile || { name: "", avatar: "" };
   S.theme = S.theme || { pal: "stayka", mode: "auto" };
-  Object.keys(S.groups).forEach(k => { if (!S.groups[k].code) S.groups[k].code = makeCode(); });
+  S.people = S.people || {};
+  Object.keys(S.groups).forEach(k => { const g = S.groups[k]; if (!g.code) g.code = makeCode(); if ((k === "office" || k === "friends") && !g.sync) g.demo = true; });
 }
 fix();
 S.lang = lang;
@@ -116,7 +123,8 @@ async function share(data) {
 const inviteText = g => x(`Присоединяйся к компании «${d(g.name)}» в приложении Стайка! Код приглашения: ${g.code}`, `Join “${d(g.name)}” in the Stayka app! Invite code: ${g.code}`, `Γίνε μέλος της ομάδας «${d(g.name)}» στην εφαρμογή Stayka! Κωδικός πρόσκλησης: ${g.code}`)
   + "\n" + x("Приложение для Android: ", "Android app: ", "Εφαρμογή Android: ") + APK;
 
-let sheet = S.consent ? null : { kind: "consent", age: false, data: false, push: false, rerender: true };
+const SYNC_CFG = !!(config.apiKey && config.projectId), CONSENT_V = 2;
+let sheet = S.consent && !(SYNC_CFG && S.consent.version < CONSENT_V) ? null : { kind: "consent", age: false, data: false, push: false, rerender: true };
 let toastT = null, wheelRot = 0, spinning = false, wheelPick = null;
 function toast(m) { const el = $("#toast"); el.textContent = m; el.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove("on"), 2400); }
 const fmtDate = s => { const dt = new Date(s + "T00:00:00"); return { d: dt.getDate(), m: dt.toLocaleDateString(LOC[lang], { month: "short" }).replace(".", ""), w: dt.toLocaleDateString(LOC[lang], { weekday: "long" }) }; };
@@ -222,14 +230,14 @@ const sAge = () => `<h2>${x("Только для взрослых", "Adults only
 function policy() {
   return [
     [x("Кто отвечает за данные", "Who controls the data", "Ποιος είναι υπεύθυνος για τα δεδομένα"), x("Оператор: [название и контакты оператора, адрес для запросов по данным]. Это черновик, его должен проверить юрист.", "Controller: [operator name, contact details, address for data requests]. This is a draft and needs legal review.", "Υπεύθυνος: [επωνυμία και στοιχεία επικοινωνίας, διεύθυνση για αιτήματα δεδομένων]. Πρόκειται για πρόχειρο κείμενο που χρειάζεται νομικό έλεγχο.")],
-    [x("Какие данные", "What data", "Ποια δεδομένα"), x("Имя, фото (по желанию), ваши ответы в группах (обед, голосования, события) и настройки. Мы не собираем геолокацию, контакты телефона и рекламные идентификаторы.", "Name, photo (optional), your answers in groups (lunch, polls, events) and settings. We do not collect location, phone contacts or advertising IDs.", "Όνομα, φωτογραφία (προαιρετικά), οι απαντήσεις σας στις ομάδες (γεύμα, ψηφοφορίες, εκδηλώσεις) και ρυθμίσεις. Δεν συλλέγουμε τοποθεσία, επαφές τηλεφώνου ή διαφημιστικά αναγνωριστικά.")],
+    [x("Какие данные", "What data", "Ποια δεδομένα"), x("Имя, фото (по желанию), ваши ответы в компаниях (обед, голосования, события, места на карте) и настройки. Для работы синхронизации Firebase создаёт анонимный идентификатор вашего устройства. Мы не собираем геолокацию, контакты телефона и рекламные идентификаторы.", "Name, photo (optional), your answers in groups (lunch, polls, events, places on the map) and settings. To make sync work Firebase creates an anonymous identifier for your device. We do not collect location, phone contacts or advertising identifiers.", "Όνομα, φωτογραφία (προαιρετικά), οι απαντήσεις σας στις ομάδες (γεύμα, ψηφοφορίες, εκδηλώσεις, μέρη στον χάρτη) και ρυθμίσεις. Για τον συγχρονισμό το Firebase δημιουργεί ένα ανώνυμο αναγνωριστικό της συσκευής σας. Δεν συλλέγουμε τοποθεσία, επαφές τηλεφώνου ή διαφημιστικά αναγνωριστικά.")],
     [x("Зачем и на каком основании", "Why and on what basis", "Γιατί και με ποια νομική βάση"), x("Чтобы приложение работало для вашей группы. Основание: ваше согласие (ст. 6(1)(a) GDPR) и предоставление сервиса. Согласие можно отозвать в любой момент.", "To run the app for your group. Basis: your consent (Art. 6(1)(a) GDPR) and providing the service. You can withdraw consent at any time.", "Για να λειτουργεί η εφαρμογή για την ομάδα σας. Βάση: η συγκατάθεσή σας (άρθρο 6(1)(α) GDPR) και η παροχή της υπηρεσίας. Μπορείτε να την ανακαλέσετε οποιαδήποτε στιγμή.")],
     [x("Игры", "Games", "Παιχνίδια"), x("Вопросы и ответы в играх не записываются и никуда не передаются. Возраст подтверждается вашей отметкой, мы не просим документов.", "Questions and answers in games are not recorded or sent anywhere. Age is confirmed by your own tick; we ask for no documents.", "Οι ερωτήσεις και οι απαντήσεις στα παιχνίδια δεν καταγράφονται ούτε αποστέλλονται πουθενά. Η ηλικία επιβεβαιώνεται με δική σας δήλωση, δεν ζητάμε έγγραφα.")],
-    [x("Кто что видит", "Who sees what", "Ποιος βλέπει τι"), x("Сейчас никто, кроме вас: всё хранится на вашем телефоне. Участники демо-групп выдуманные.", "Right now nobody but you: everything is kept on your phone. The people in the demo groups are made up.", "Προς το παρόν κανείς εκτός από εσάς: όλα αποθηκεύονται στο κινητό σας. Τα μέλη των δοκιμαστικών ομάδων είναι φανταστικά.")],
-    [x("Срок хранения", "Retention", "Διάρκεια αποθήκευσης"), x("Пока вы не удалите профиль или приложение. Данные лежат только на телефоне и на наши серверы не передаются. Когда появится синхронизация между друзьями, мы обновим эту политику и снова спросим согласие.", "Until you delete your profile or the app. Data stays on your phone only and is not sent to our servers. When sync between friends arrives, we will update this notice and ask for consent again.", "Μέχρι να διαγράψετε το προφίλ ή την εφαρμογή. Τα δεδομένα μένουν μόνο στο κινητό και δεν στέλνονται στους διακομιστές μας. Όταν προστεθεί συγχρονισμός μεταξύ φίλων, θα ενημερώσουμε αυτή την πολιτική και θα ζητήσουμε ξανά συγκατάθεση.")],
+    [x("Кто что видит", "Who sees what", "Ποιος βλέπει τι"), x("Участники вашей компании видят ваше имя, фото и ответы в этой компании. Людей вне компании данные не видят; в компанию вступают по секретному коду. Демо-компании выдуманные и остаются только на телефоне.", "Members of your group see your name, photo and answers in that group. People outside the group cannot see the data; people join with a secret code. The demo groups are made up and stay on your phone only.", "Τα μέλη της ομάδας σας βλέπουν το όνομα, τη φωτογραφία και τις απαντήσεις σας σε αυτήν. Όσοι είναι εκτός ομάδας δεν βλέπουν τα δεδομένα· η συμμετοχή γίνεται με μυστικό κωδικό. Οι demo ομάδες είναι φανταστικές και μένουν μόνο στο κινητό.")],
+    [x("Срок хранения", "Retention", "Διάρκεια αποθήκευσης"), x("Данные компании хранятся на сервере, пока вы в ней состоите. Когда вы выходите из компании или удаляете профиль в приложении, ваши ответы, голоса и профиль в ней стираются с сервера. Данные в самом телефоне хранятся, пока вы не удалите профиль или приложение.", "Group data is kept on the server while you are a member. When you leave a group or delete your profile in the app, your answers, votes and profile in it are erased from the server. Data on the phone stays until you delete your profile or the app.", "Τα δεδομένα της ομάδας φυλάσσονται στον διακομιστή όσο είστε μέλος. Όταν αποχωρείτε από μια ομάδα ή διαγράφετε το προφίλ σας στην εφαρμογή, οι απαντήσεις, οι ψήφοι και το προφίλ σας σε αυτήν διαγράφονται από τον διακομιστή. Τα δεδομένα στο κινητό μένουν μέχρι να διαγράψετε το προφίλ ή την εφαρμογή.")],
     [x("Ваши права", "Your rights", "Τα δικαιώματά σας"), x("Доступ, исправление, удаление, перенос, ограничение обработки, возражение и отзыв согласия. Всё это есть в профиле. Можно пожаловаться в надзорный орган вашей страны.", "Access, rectification, erasure, portability, restriction, objection and withdrawal of consent. All are available in your profile. You can complain to your national supervisory authority.", "Πρόσβαση, διόρθωση, διαγραφή, φορητότητα, περιορισμός, εναντίωση και ανάκληση συγκατάθεσης. Όλα διατίθενται στο προφίλ σας. Μπορείτε να υποβάλετε καταγγελία στην εποπτική αρχή της χώρας σας.")],
     [x("Карты", "Maps", "Χάρτες"), x("Кнопки «На карте» и «Маршрут» открывают Google Карты по ссылке в отдельном приложении или браузере; в ссылку попадает только название или координаты места. Сама Стайка ничего не отправляет Google. Когда вы делитесь местом из Карт в Стайку, приложение читает только присланный вами текст. Геолокацию телефона мы не запрашиваем.", "The “On the map” and “Directions” buttons open Google Maps by link in a separate app or browser; the link contains only the place name or coordinates. Stayka itself sends nothing to Google. When you share a place from Maps to Stayka, the app reads only the text you sent. We do not ask for the phone's location.", "Τα κουμπιά «Στον χάρτη» και «Διαδρομή» ανοίγουν το Google Maps με σύνδεσμο σε ξεχωριστή εφαρμογή ή πρόγραμμα περιήγησης· ο σύνδεσμος περιέχει μόνο το όνομα ή τις συντεταγμένες του μέρους. Η ίδια η Stayka δεν στέλνει τίποτα στη Google. Όταν μοιράζεστε ένα μέρος από τους Χάρτες στη Stayka, η εφαρμογή διαβάζει μόνο το κείμενο που στείλατε. Δεν ζητάμε τη θέση του κινητού.")],
-    [x("Третьи лица", "Third parties", "Τρίτοι"), x("Мы не продаём данные, не показываем рекламу и не строим профили. Приложение никому ничего не отправляет: шрифты встроены, аналитики и рекламных SDK нет.", "We do not sell data, show ads or build profiles. The app sends nothing to anyone: fonts are built in, and there is no analytics or advertising SDK.", "Δεν πουλάμε δεδομένα, δεν δείχνουμε διαφημίσεις και δεν δημιουργούμε προφίλ. Η εφαρμογή δεν στέλνει τίποτα σε κανέναν: οι γραμματοσειρές είναι ενσωματωμένες και δεν υπάρχει analytics ή διαφημιστικό SDK.")]
+    [x("Третьи лица", "Third parties", "Τρίτοι"), x("Данные компаний хранит Google (Firebase Authentication и Cloud Firestore) как наш обработчик; регион хранения: [указать, например ЕС]. Мы не продаём данные, не показываем рекламу и не строим профили; аналитики и рекламных SDK нет, шрифты встроены.", "Group data is stored by Google (Firebase Authentication and Cloud Firestore) as our processor; storage region: [fill in, for example EU]. We do not sell data, show ads or build profiles; there is no analytics or advertising SDK and fonts are built in.", "Τα δεδομένα των ομάδων αποθηκεύονται από την Google (Firebase Authentication και Cloud Firestore) ως εκτελούσα την επεξεργασία· περιοχή αποθήκευσης: [συμπληρώστε, π.χ. ΕΕ]. Δεν πουλάμε δεδομένα, δεν εμφανίζουμε διαφημίσεις και δεν δημιουργούμε προφίλ· δεν υπάρχει analytics ή διαφημιστικό SDK και οι γραμματοσειρές είναι ενσωματωμένες.")],
   ];
 }
 const policyHtml = () => `<div class="pl">${policy().map(([h, p]) => `<div><b>${h}</b><p>${p}</p></div>`).join("")}</div>`;
@@ -238,6 +246,7 @@ function sConsent() {
   const ok = sheet.age && sheet.data;
   return `<h2>${x("Добро пожаловать", "Welcome", "Καλώς ήρθατε")}</h2>${langBtns()}
     <p class="muted">${x("Прежде чем начать, коротко о ваших данных. Мы собираем только то, что нужно для работы групп.", "Before you start, a short note on your data. We only collect what groups need to work.", "Πριν ξεκινήσετε, μια σύντομη ενημέρωση. Συλλέγουμε μόνο ό,τι χρειάζονται οι ομάδες για να λειτουργούν.")}</p>
+    ${SYNC_CFG ? `<div class="notice">${x("Ваши компании синхронизируются через серверы Google (Firebase): имя, фото и ответы видят участники компании. Подробности в политике.", "Your groups sync through Google (Firebase) servers: group members see your name, photo and answers. See the notice for details.", "Οι ομάδες σας συγχρονίζονται μέσω των διακομιστών της Google (Firebase): τα μέλη βλέπουν το όνομα, τη φωτογραφία και τις απαντήσεις σας. Δείτε την πολιτική.")}</div>` : ""}
     <details><summary>${x("Политика конфиденциальности", "Privacy notice", "Πολιτική απορρήτου")}</summary>${policyHtml()}</details>
     <label class="chk"><input type="checkbox" id="cAge" ${sheet.age ? "checked" : ""}><span>${x("Мне есть 16 лет или больше (обязательно)", "I am 16 or older (required)", "Είμαι 16 ετών ή μεγαλύτερος (απαραίτητο)")}</span></label>
     <label class="chk"><input type="checkbox" id="cData" ${sheet.data ? "checked" : ""}><span>${x("Я согласен на обработку имени, фото и моих ответов в группах так, как описано в политике (обязательно)", "I consent to the processing of my name, photo and answers in groups as described in the notice (required)", "Συναινώ στην επεξεργασία του ονόματος, της φωτογραφίας και των απαντήσεών μου στις ομάδες όπως περιγράφεται στην πολιτική (απαραίτητο)")}</span></label>
@@ -268,7 +277,7 @@ const sPolicy = () => `<h2>${x("Политика конфиденциально�
 function exportData() {
   const mine = { groups: {} };
   Object.keys(S.groups).forEach(k => { const g = S.groups[k]; mine.groups[k] = { name: d(g.name), lunchAnswer: g.lunch.resp.me || null, pollVote: (g.poll.opts.find(o => o.votes.includes("me")) || {}).name ? d(g.poll.opts.find(o => o.votes.includes("me")).name) : null, eventAnswers: g.events.filter(e => e.rsvp.me).map(e => ({ event: d(e.title), answer: e.rsvp.me })) }; });
-  return JSON.stringify({ exportedAt: new Date().toISOString(), profile: { name: S.profile.name, hasAvatar: !!S.profile.avatar, language: lang }, consent: S.consent, adultConfirmed: S.adult, alcoholFreeMode: S.dry, activity: mine }, null, 2);
+  return JSON.stringify({ exportedAt: new Date().toISOString(), profile: { name: S.profile.name, hasAvatar: !!S.profile.avatar, language: lang }, syncUserId: S.uid || null, consent: S.consent, adultConfirmed: S.adult, alcoholFreeMode: S.dry, activity: mine }, null, 2);
 }
 const sMyData = () => `<h2>${x("Мои данные", "My data", "Τα δεδομένα μου")}</h2><p class="muted">${x("Всё, что приложение хранит о вас, в машиночитаемом виде (JSON). Скопируйте и сохраните. Ответы в играх не хранятся.", "Everything the app stores about you in a machine-readable format (JSON). Copy and save it. Game answers are not stored.", "Όλα όσα αποθηκεύει η εφαρμογή για εσάς σε μορφή JSON. Αντιγράψτε και αποθηκεύστε. Οι απαντήσεις στα παιχνίδια δεν αποθηκεύονται.")}</p><textarea id="dump" readonly>${esc(exportData())}</textarea><button class="btn" data-act="copyData">${x("Копировать", "Copy", "Αντιγραφή")}</button><button class="btn ghost" data-act="profile">${x("Назад", "Back", "Πίσω")}</button>`;
 
@@ -309,7 +318,7 @@ const sNewGroup = () => `<h2>${x("Новая компания", "New group", "Ν
     <label for="gName">${x("Название", "Name", "Όνομα")}<input type="text" id="gName" maxlength="40" placeholder="${x("Например, Пятничные или Офис", "For example, Friday crew or Office", "Π.χ. Η παρέα ή Γραφείο")}"></label>
     <button class="btn" data-act="gCreate">${x("Создать и пригласить", "Create and invite", "Δημιουργία και πρόσκληση")}</button>
     <hr class="divider">
-    <label for="jCode">${x("Есть код приглашения?", "Have an invite code?", "Έχετε κωδικό πρόσκλησης;")}<input type="text" id="jCode" maxlength="6" autocapitalize="characters" autocomplete="off" placeholder="ABC123"></label>
+    <label for="jCode">${x("Есть код приглашения?", "Have an invite code?", "Έχετε κωδικό πρόσκλησης;")}<input type="text" id="jCode" maxlength="8" autocapitalize="characters" autocomplete="off" placeholder="ABCD2345"></label>
     <button class="btn ghost" data-act="gJoin">${x("Вступить по коду", "Join with a code", "Συμμετοχή με κωδικό")}</button>
     <button class="btn ghost" data-act="close">${x("Отмена", "Cancel", "Ακύρωση")}</button>`;
 function sGroup() {
@@ -318,10 +327,11 @@ function sGroup() {
     <label for="gRen">${x("Название", "Name", "Όνομα")}<input type="text" id="gRen" maxlength="40" value="${esc(d(g.name))}"></label>
     <div><div class="muted" style="margin-bottom:6px">${x("Участники", "Members", "Μέλη")}</div><div class="faces">${g.members.map(id => `<span class="face">${av(id)}${esc(pname(id))}</span>`).join("")}</div></div>
     <div><div class="muted" style="margin-bottom:6px">${x("Код приглашения", "Invite code", "Κωδικός πρόσκλησης")}</div><div class="code" aria-label="${esc(g.code.split("").join(" "))}">${esc(g.code)}</div></div>
+    ${SYNC_CFG && !g.sync && !g.demo ? `<button class="btn lemon" data-act="gSync">${x("Включить синхронизацию", "Turn on sync", "Ενεργοποίηση συγχρονισμού")}</button>` : ""}
     <button class="btn" data-act="gInvite">${x("Отправить приглашение", "Send invitation", "Αποστολή πρόσκλησης")}</button>
     <button class="btn ghost" data-act="gCopy">${x("Скопировать код", "Copy code", "Αντιγραφή κωδικού")}</button>
-    <div class="notice">${g.joined ? x("Вы вступили по коду. Участники этой компании появятся здесь, когда заработает синхронизация. ", "You joined with a code. The members of this group will appear here once sync is on. ", "Μπήκατε με κωδικό. Τα μέλη θα εμφανιστούν εδώ όταν ενεργοποιηθεί ο συγχρονισμός. ") : ""}${x("Приглашение отправляет код и ссылку на приложение. Общие обеды, голосования и события между телефонами заработают, когда мы включим синхронизацию: тогда друзья, введя код, окажутся в вашей компании.", "The invitation sends a code and a link to the app. Shared lunches, polls and events between phones will work once sync is switched on; then friends who enter the code will land in your group.", "Η πρόσκληση στέλνει έναν κωδικό και σύνδεσμο προς την εφαρμογή. Τα κοινά γεύματα, οι ψηφοφορίες και οι εκδηλώσεις μεταξύ κινητών θα λειτουργήσουν όταν ενεργοποιηθεί ο συγχρονισμός· τότε οι φίλοι που θα βάλουν τον κωδικό θα μπουν στην ομάδα σας.")}</div>
-    <button class="btn danger" data-act="gDel">${sheet.confirmGDel ? x("Точно? Нажмите ещё раз", "Sure? Tap again", "Σίγουρα; Πατήστε ξανά") : x("Удалить компанию с этого телефона", "Delete group from this phone", "Διαγραφή ομάδας από αυτό το κινητό")}</button>
+    <div class="notice">${g.sync ? x("Друг вводит код в Стайке («＋» → «Вступить по коду») и попадает в эту компанию: вы видите общие обеды, голосования и события. Не публикуйте код открыто: он работает как пароль.", "A friend enters the code in Stayka (“＋” → “Join with a code”) and lands in this group: you share lunches, polls and events. Do not post the code publicly: it works like a password.", "Ένας φίλος βάζει τον κωδικό στη Stayka («＋» → «Συμμετοχή με κωδικό») και μπαίνει στην ομάδα: μοιράζεστε γεύματα, ψηφοφορίες και εκδηλώσεις. Μην δημοσιεύετε τον κωδικό: λειτουργεί σαν κωδικός πρόσβασης.") : g.demo ? x("Это демо-компания с выдуманными людьми, она остаётся на телефоне. Создайте свою компанию кнопкой «＋».", "This is a demo group with made-up people and stays on your phone. Create your own group with “＋”.", "Αυτή είναι demo ομάδα με φανταστικά άτομα και μένει στο κινητό. Δημιουργήστε τη δική σας με το «＋».") : (g.joined ? x("Вы вступили по коду. Участники этой компании появятся здесь, когда заработает синхронизация. ", "You joined with a code. The members of this group will appear here once sync is on. ", "Μπήκατε με κωδικό. Τα μέλη θα εμφανιστούν εδώ όταν ενεργοποιηθεί ο συγχρονισμός. ") : "") + x("Приглашение отправляет код и ссылку на приложение. Общие обеды, голосования и события между телефонами заработают, когда мы включим синхронизацию: тогда друзья, введя код, окажутся в вашей компании.", "The invitation sends a code and a link to the app. Shared lunches, polls and events between phones will work once sync is switched on; then friends who enter the code will land in your group.", "Η πρόσκληση στέλνει έναν κωδικό και σύνδεσμο προς την εφαρμογή. Τα κοινά γεύματα, οι ψηφοφορίες και οι εκδηλώσεις μεταξύ κινητών θα λειτουργήσουν όταν ενεργοποιηθεί ο συγχρονισμός· τότε οι φίλοι που θα βάλουν τον κωδικό θα μπουν στην ομάδα σας.")}</div>
+    <button class="btn danger" data-act="gDel">${sheet.confirmGDel ? x("Точно? Нажмите ещё раз", "Sure? Tap again", "Σίγουρα; Πατήστε ξανά") : g.sync ? x("Выйти из компании и стереть мои ответы", "Leave the group and erase my answers", "Αποχώρηση και διαγραφή των απαντήσεών μου") : x("Удалить компанию с этого телефона", "Delete group from this phone", "Διαγραφή ομάδας από αυτό το κινητό")}</button>
     <button class="btn ghost" data-act="close">${x("Готово", "Done", "Τέλος")}</button>`;
 }
 const WCOL = ["#E8472F", "#2B7A78", "#F4C430", "#5B4B8A", "#3A6EA5", "#B5651D", "#8A3F6B", "#4F6D2F"];
@@ -346,7 +356,7 @@ function render() {
   document.documentElement.lang = lang;
   applyTheme();
   $("#logo").innerHTML = x("стайка", "stayka", "στάικα") + "<i>.</i>";
-  $("#foot").textContent = x("Данные хранятся только на этом телефоне. Синхронизация между друзьями будет позже", "Data is stored on this phone only. Sync between friends comes later", "Τα δεδομένα αποθηκεύονται μόνο σε αυτό το κινητό. Ο συγχρονισμός μεταξύ φίλων έρχεται αργότερα");
+  $("#foot").textContent = syncNote();
   $("#meBtn").innerHTML = av("me"); $("#meBtn").setAttribute("aria-label", x("Профиль и приватность", "Profile and privacy", "Προφίλ και απόρρητο"));
   $("#groups").innerHTML = Object.keys(S.groups).map(id => `<button class="gchip ${id === S.gid ? "on" : ""}" data-act="group" data-id="${id}">${esc(d(S.groups[id].name))}</button>`).join("") + `<button class="gchip add" data-act="newGroup" aria-label="${x("Новая компания", "New group", "Νέα ομάδα")}">＋</button>`;
   $("#tabs").innerHTML = tabs().map(([id, nm]) => `<button class="tab ${id === S.tab ? "on" : ""}" data-act="goto" data-id="${id}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[id]}</svg>${nm}</button>`).join("");
@@ -370,7 +380,7 @@ function readAvatar(file) {
   fr.onload = () => { const im = new Image(); im.onload = () => {
     const c = document.createElement("canvas"), n = 128; c.width = c.height = n; const s = Math.min(im.width, im.height);
     c.getContext("2d").drawImage(im, (im.width - s) / 2, (im.height - s) / 2, s, s, 0, 0, n, n);
-    S.profile.avatar = c.toDataURL("image/jpeg", .8); if (sheet) sheet.rerender = true; save(); toast(x("Фото обновлено", "Photo updated", "Η φωτογραφία ενημερώθηκε"));
+    S.profile.avatar = c.toDataURL("image/jpeg", .8); pushProfile(); if (sheet) sheet.rerender = true; save(); toast(x("Фото обновлено", "Photo updated", "Η φωτογραφία ενημερώθηκε"));
   }; im.src = fr.result; };
   fr.readAsDataURL(file);
 }
@@ -407,27 +417,77 @@ function onShared(text) {
   open("shared", data);
 }
 
+// ---------- sync (Firebase) ----------
+let sy = null, syncState = SYNC_CFG ? "off" : "none", unsubs = {}, dirty = false, profT = null;
+const later = () => { if (dirty) return; dirty = true; requestAnimationFrame(() => { dirty = false; persist(); render(); }); };
+// The synced group the user is looking at (null for demo/local groups or when not connected).
+const SG = () => { const g = G(); return sy && g.sync ? g : null; };
+async function startSync() {
+  if (!SYNC_CFG || sy || !S.consent || S.consent.version < CONSENT_V) return;
+  try {
+    const m = await import("./sync.js"); S.uid = await m.start(window.__stayka_emulator); sy = m; syncState = "on"; persist();
+    Object.keys(S.groups).forEach(watchGroup); render();
+  } catch (e) { syncState = "error"; render(); }
+}
+window.addEventListener("online", () => { if (!sy) startSync(); });
+function watchGroup(k) {
+  const g = S.groups[k]; if (!sy || !g || !g.sync || unsubs[k]) return;
+  unsubs[k] = sy.watch(g.code, {
+    group: d => { if (d && d.name) g.name = d.name; later(); },
+    members: list => { const r = membersFromRemote(list, S.uid); g.members = r.members; Object.assign(S.people, r.people); later(); },
+    lunch: d => { g.lunch = lunchFromRemote(d, S.uid); later(); },
+    poll: d => { g.poll = pollFromRemote(d, S.uid); later(); },
+    events: l => { g.events = l.map(([id, e]) => eventFromRemote(id, e, S.uid)); later(); },
+    error: e => { g.syncErr = e && e.code; later(); }
+  });
+}
+function unwatchAll() { Object.keys(unsubs).forEach(k => { try { unsubs[k](); } catch (e) {} delete unsubs[k]; }); }
+function pushProfile() {
+  if (!sy) return; clearTimeout(profT);
+  profT = setTimeout(() => { Object.keys(S.groups).forEach(k => { const g = S.groups[k]; if (g.sync) sy.putMember(g.code, S.profile).catch(() => {}); }); }, 800);
+}
+// Upload a local group to the server under a fresh secret code and start watching it.
+async function enableSync(k) {
+  const g = S.groups[k]; if (!sy) throw new Error("offline");
+  const code = makeCode();
+  await sy.createGroup(code, d(g.name), S.profile,
+    lunchToRemote(Object.assign({}, g.lunch, { place: d(g.lunch.place) }), S.uid),
+    pollToRemote({ q: d(g.poll.q), opts: g.poll.opts.map(o => Object.assign({}, o, { name: d(o.name) })), win: g.poll.win }, S.uid),
+    g.events.map(e => [e.id, eventToRemote(Object.assign({}, e, { title: d(e.title), place: d(e.place) }), S.uid)]));
+  g.code = code; g.sync = true; g.members = ["me"]; persist(); watchGroup(k);
+}
+const offlineToast = () => toast(x("Нет связи с сервером. Проверьте интернет и попробуйте ещё раз", "No connection to the server. Check the internet and try again", "Δεν υπάρχει σύνδεση με τον διακομιστή. Ελέγξτε το διαδίκτυο και δοκιμάστε ξανά"));
+const syncNote = () => {
+  const g = G();
+  if (g.demo) return x("Демо-компания: участники выдуманные, данные только на этом телефоне", "Demo group: the people are made up, data stays on this phone", "Demo ομάδα: τα μέλη είναι φανταστικά, τα δεδομένα μένουν στο κινητό");
+  if (g.sync) return sy ? x("Компания синхронизируется между телефонами участников", "This group syncs between members' phones", "Η ομάδα συγχρονίζεται μεταξύ των κινητών των μελών") : x("Нет связи с сервером: показаны сохранённые данные", "Not connected to the server: showing saved data", "Δεν υπάρχει σύνδεση: εμφανίζονται αποθηκευμένα δεδομένα");
+  return SYNC_CFG ? x("Эта компания пока только на вашем телефоне. Включите синхронизацию в «Участники и код»", "This group is on your phone only for now. Turn on sync in “Members and code”", "Η ομάδα είναι προς το παρόν μόνο στο κινητό σας. Ενεργοποιήστε τον συγχρονισμό στα «Μέλη και κωδικός»")
+    : x("Данные хранятся только на этом телефоне. Синхронизация между друзьями будет позже", "Data is stored on this phone only. Sync between friends comes later", "Τα δεδομένα αποθηκεύονται μόνο σε αυτό το κινητό. Ο συγχρονισμός μεταξύ φίλων έρχεται αργότερα");
+};
+
 // ---------- actions ----------
 const A = {
   group: id => { S.gid = id; save(); },
   goto: id => { S.tab = id; window.scrollTo(0, 0); save(); },
   lang: id => { lang = id; S.lang = id; if (sheet) sheet.rerender = true; save(); },
-  resp: v => { const L = G().lunch; L.resp.me = L.resp.me === v ? null : v; if (!L.resp.me) delete L.resp.me; save(); if (L.resp.me === "in") toast(x("Вы идёте на обед", "You're going to lunch", "Έρχεστε στο γεύμα")); },
+  resp: v => { const L = G().lunch; L.resp.me = L.resp.me === v ? null : v; if (!L.resp.me) delete L.resp.me; const sg = SG(); if (sg) sy.respLunch(sg.code, S.uid, L.resp.me || null).catch(() => {}); save(); if (L.resp.me === "in") toast(x("Вы идёте на обед", "You're going to lunch", "Έρχεστε στο γεύμα")); },
   newLunch: () => open("lunch", { place: "", time: "13:00" }),
   lTime: v => { syncSheet(); sheet.time = v; sheet.rerender = true; render(); },
   lSend: () => {
     syncSheet(); if (!commitGeo()) return;
     const p = (sheet.place || "").trim(); if (!p) { toast(x("Напишите, куда идём", "Write where you are going", "Γράψτε πού πάτε")); return; }
-    G().lunch = { place: p, time: sheet.time || "13:00", by: "me", resp: { me: "in" }, geo: sheet.geo }; sheet = null; S.tab = "lunch"; save(); toast(x("Приглашение отправлено", "Invitation sent", "Η πρόσκληση στάλθηκε"));
+    G().lunch = { place: p, time: sheet.time || "13:00", by: "me", resp: { me: "in" }, geo: sheet.geo };
+    { const sg = SG(); if (sg) sy.setLunch(sg.code, lunchToRemote(sg.lunch, S.uid)).catch(() => {}); }
+    sheet = null; S.tab = "lunch"; save(); toast(x("Приглашение отправлено", "Invitation sent", "Η πρόσκληση στάλθηκε"));
   },
-  vote: id => { const P = G().poll, o = P.opts.find(v => v.id === id), had = o.votes.includes("me"); P.opts.forEach(v => v.votes = v.votes.filter(u => u !== "me")); if (!had) o.votes.push("me"); P.win = null; save(); },
-  addOpt: () => { const el = $("#newOpt"), v = el.value.trim(); if (!v) { toast(x("Впишите вариант", "Type an option", "Γράψτε μια επιλογή")); return; } const r = parseMapsText(v), o = { id: uid(), name: v, votes: [] }; if (r && (r.url || r.lat !== undefined)) { o.name = r.name || x("Точка на карте", "Map point", "Σημείο στον χάρτη"); o.geo = cleanGeo(r); } G().poll.opts.push(o); el.value = ""; save(); },
+  vote: id => { const P = G().poll, o = P.opts.find(v => v.id === id), had = o.votes.includes("me"); P.opts.forEach(v => v.votes = v.votes.filter(u => u !== "me")); if (!had) o.votes.push("me"); P.win = null; const sg = SG(); if (sg) sy.vote(sg.code, S.uid, had ? null : id).catch(() => {}); save(); },
+  addOpt: () => { const el = $("#newOpt"), v = el.value.trim(); if (!v) { toast(x("Впишите вариант", "Type an option", "Γράψτε μια επιλογή")); return; } const r = parseMapsText(v), o = { id: uid(), name: v, votes: [] }; if (r && (r.url || r.lat !== undefined)) { o.name = r.name || x("Точка на карте", "Map point", "Σημείο στον χάρτη"); o.geo = cleanGeo(r); } G().poll.opts.push(o); { const sg = SG(); if (sg) sy.addOpt(sg.code, { id: o.id, name: d(o.name), geo: o.geo }).catch(() => {}); } el.value = ""; save(); },
   wheel: () => { wheelPick = null; open("wheel"); },
   spin: () => {
     if (spinning) return; const opts = G().poll.opts, n = opts.length, step = 360 / n, w = document.getElementById("wheel"); if (!w) return;
     spinning = true; wheelRot += 360 * 5 + Math.floor(Math.random() * 360); w.style.transform = `rotate(${wheelRot}deg)`;
     setTimeout(() => {
-      const a = wheelRot % 360, idx = Math.floor(((360 - a) % 360) / step); wheelPick = d(opts[idx].name); G().poll.win = wheelPick; spinning = false; persist();
+      const a = wheelRot % 360, idx = Math.floor(((360 - a) % 360) / step); wheelPick = d(opts[idx].name); G().poll.win = wheelPick; spinning = false; persist(); { const sg = SG(); if (sg) sy.setWin(sg.code, wheelPick).catch(() => {}); }
       const r = document.getElementById("wres"); if (r) { r.className = "winner"; r.textContent = x("Выпало", "Result", "Αποτέλεσμα") + ": " + wheelPick; }
     }, matchMedia("(prefers-reduced-motion: reduce)").matches ? 50 : 4100);
   },
@@ -436,9 +496,9 @@ const A = {
     syncSheet(); if (!commitGeo()) return;
     const t = (sheet.title || "").trim(), p = (sheet.place || "").trim(), dt = sheet.date, tm = sheet.etime;
     if (!t || !dt) { toast(x("Нужны название и дата", "Title and date are required", "Απαιτούνται τίτλος και ημερομηνία")); return; }
-    G().events.push({ id: uid(), title: t, place: p || x("Место уточняется", "Place to be confirmed", "Το μέρος θα οριστεί"), date: dt, time: tm || "19:00", rsvp: { me: "yes" }, geo: sheet.geo }); sheet = null; save(); toast(x("Событие создано", "Event created", "Η εκδήλωση δημιουργήθηκε"));
+    const evId = uid(); G().events.push({ id: evId, by: "me", title: t, place: p || x("Место уточняется", "Place to be confirmed", "Το μέρος θα οριστεί"), date: dt, time: tm || "19:00", rsvp: { me: "yes" }, geo: sheet.geo }); { const sg = SG(); if (sg) sy.setEvent(sg.code, evId, eventToRemote(sg.events[sg.events.length - 1], S.uid)).catch(() => {}); } sheet = null; save(); toast(x("Событие создано", "Event created", "Η εκδήλωση δημιουργήθηκε"));
   },
-  rsvp: (id, v) => { const e = G().events.find(z => z.id === id); e.rsvp.me = e.rsvp.me === v ? null : v; if (!e.rsvp.me) delete e.rsvp.me; save(); },
+  rsvp: (id, v) => { const e = G().events.find(z => z.id === id); e.rsvp.me = e.rsvp.me === v ? null : v; if (!e.rsvp.me) delete e.rsvp.me; const sg = SG(); if (sg) sy.rsvp(sg.code, id, S.uid, e.rsvp.me || null).catch(() => {}); save(); },
   dry: () => { S.dry = !S.dry; save(); },
   game: id => { if (isAdult(id) && !S.adult) { open("age", { next: id }); return; } open("game", { id, deck: shuffle(cardsOf(id).length), pos: 0, show: false }); },
   ageYes: () => { S.adult = true; persist(); const n = sheet.next; open("game", { id: n, deck: shuffle(cardsOf(n).length), pos: 0, show: false }); },
@@ -448,15 +508,19 @@ const A = {
   policy: () => open("policy"),
   myData: () => open("mydata"),
   copyData: () => { const ta = $("#dump"); ta.select(); const ok = () => toast(x("Скопировано", "Copied", "Αντιγράφηκε")); try { navigator.clipboard.writeText(ta.value).then(ok, () => { try { document.execCommand("copy"); ok(); } catch (e) {} }); } catch (e) { try { document.execCommand("copy"); ok(); } catch (e2) {} } },
-  avDel: () => { S.profile.avatar = ""; sheet.rerender = true; save(); },
+  avDel: () => { S.profile.avatar = ""; pushProfile(); sheet.rerender = true; save(); },
   push: () => { if (S.consent) { S.consent.push = !S.consent.push; sheet.rerender = true; save(); } },
   adultToggle: () => { S.adult = !S.adult; sheet.rerender = true; save(); },
-  delAll: () => {
+  delAll: async () => {
     if (!sheet.confirmDel) { sheet.confirmDel = true; sheet.rerender = true; render(); return; }
+    if (sy) {
+      try { unwatchAll(); await sy.deleteAccount(Object.keys(S.groups).filter(k => S.groups[k].sync).map(k => S.groups[k].code)); sy = null; syncState = "off"; }
+      catch (e) { Object.keys(S.groups).forEach(watchGroup); offlineToast(); return; }
+    }
     LS.set(KEY, ""); const keepLang = lang; S = seed(); fix(); S.lang = keepLang; lang = keepLang; wheelPick = null; wheelRot = 0;
     sheet = { kind: "consent", age: false, data: false, push: false, rerender: true }; render(); toast(x("Все ваши данные удалены", "All your data was deleted", "Όλα τα δεδομένα σας διαγράφηκαν"));
   },
-  consentGo: () => { if (!(sheet.age && sheet.data)) return; S.consent = { ts: Date.now(), version: 1, push: !!sheet.push }; sheet = null; save(); if (pendingShared) { const ps = pendingShared; pendingShared = null; open("shared", ps); } },
+  consentGo: () => { if (!(sheet.age && sheet.data)) return; S.consent = { ts: Date.now(), version: CONSENT_V, push: !!sheet.push }; sheet = null; save(); startSync(); if (pendingShared) { const ps = pendingShared; pendingShared = null; open("shared", ps); } },
   pal: id => { S.theme.pal = id; sheet.rerender = true; save(); },
   mode: id => { S.theme.mode = id; sheet.rerender = true; save(); },
   // maps
@@ -479,29 +543,42 @@ const A = {
   shEvent: () => { syncSheet(); open("event", { place: sheet.name, geo: sheet.geo }); },
   shOpt: () => {
     syncSheet(); const o = { id: uid(), name: sheet.name || x("Точка на карте", "Map point", "Σημείο στον χάρτη"), votes: [] }; if (sheet.geo) o.geo = sheet.geo;
-    G().poll.opts.push(o); sheet = null; S.tab = "poll"; save(); toast(x("Добавлено в голосование", "Added to the poll", "Προστέθηκε στην ψηφοφορία"));
+    G().poll.opts.push(o); { const sg = SG(); if (sg) sy.addOpt(sg.code, { id: o.id, name: o.name, geo: o.geo }).catch(() => {}); } sheet = null; S.tab = "poll"; save(); toast(x("Добавлено в голосование", "Added to the poll", "Προστέθηκε στην ψηφοφορία"));
   },
   // groups
   newGroup: () => open("newgroup"),
-  gCreate: () => {
+  gCreate: async () => {
     const name = ($("#gName").value || "").trim(); if (!name) { toast(x("Назовите компанию", "Name the group", "Δώστε όνομα στην ομάδα")); return; }
     const id = uid(); S.groups[id] = { name, code: makeCode(), members: ["me"], lunch: { place: "", time: "13:00", by: null, resp: {} }, poll: { q: X("Куда пойдём?", "Where shall we go?", "Πού πάμε;"), opts: [], win: null }, events: [] };
-    S.gid = id; S.tab = "today"; sheet = { kind: "group", rerender: true }; save(); toast(x("Компания создана", "Group created", "Η ομάδα δημιουργήθηκε"));
+    if (SYNC_CFG) { try { await enableSync(id); } catch (e) { toast(x("Компания создана только на телефоне: нет связи с сервером. Включите синхронизацию позже", "Group created on this phone only: no connection. Turn on sync later", "Η ομάδα δημιουργήθηκε μόνο στο κινητό: δεν υπάρχει σύνδεση. Ενεργοποιήστε τον συγχρονισμό αργότερα")); } }
+    S.gid = id; S.tab = "today"; sheet = { kind: "group", rerender: true }; save(); if (!SYNC_CFG) toast(x("Компания создана", "Group created", "Η ομάδα δημιουργήθηκε"));
   },
-  gJoin: () => {
+  gJoin: async () => {
     const code = ($("#jCode").value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (code.length !== 6) { toast(x("Код состоит из 6 символов", "The code has 6 characters", "Ο κωδικός έχει 6 χαρακτήρες")); return; }
+    if (code.length !== CODE_LEN) { toast(x("Код состоит из " + CODE_LEN + " символов", "The code has " + CODE_LEN + " characters", "Ο κωδικός έχει " + CODE_LEN + " χαρακτήρες")); return; }
     let id = Object.keys(S.groups).find(k => S.groups[k].code === code);
-    if (!id) { id = uid(); S.groups[id] = { name: x("Компания ", "Group ", "Ομάδα ") + code, code, joined: true, members: ["me"], lunch: { place: "", time: "13:00", by: null, resp: {} }, poll: { q: X("Куда пойдём?", "Where shall we go?", "Πού πάμε;"), opts: [], win: null }, events: [] }; }
+    if (!id) {
+      const blank = () => ({ lunch: { place: "", time: "13:00", by: null, resp: {} }, poll: { q: "", opts: [], win: null }, events: [], members: ["me"] });
+      if (SYNC_CFG) {
+        if (!sy) { offlineToast(); return; }
+        try { await sy.joinGroup(code, S.profile); } catch (e) { if (e && e.code === "not-found") toast(x("Компания с таким кодом не найдена", "No group with that code", "Δεν βρέθηκε ομάδα με αυτόν τον κωδικό")); else offlineToast(); return; }
+        id = uid(); S.groups[id] = Object.assign(blank(), { name: x("Компания ", "Group ", "Ομάδα ") + code, code, sync: true }); watchGroup(id);
+      } else { id = uid(); S.groups[id] = Object.assign(blank(), { name: x("Компания ", "Group ", "Ομάδα ") + code, code, joined: true, poll: { q: X("Куда пойдём?", "Where shall we go?", "Πού πάμε;"), opts: [], win: null } }); }
+    }
     S.gid = id; S.tab = "today"; sheet = null; save(); toast(x("Вы в компании", "You are in the group", "Είστε στην ομάδα"));
   },
+  gSync: async () => {
+    const k = S.gid; try { await enableSync(k); sheet.rerender = true; save(); toast(x("Синхронизация включена", "Sync is on", "Ο συγχρονισμός ενεργοποιήθηκε")); } catch (e) { offlineToast(); }
+  },
   group: () => open("group", { confirmGDel: false }),
-  gInvite: () => { const g = G(); share({ title: d(g.name), text: inviteText(g) }); },
+  gInvite: () => { const g = G(); if (SYNC_CFG && !g.sync) { toast(x("Сначала включите синхронизацию: «Участники и код»", "Turn on sync first: “Members and code”", "Ενεργοποιήστε πρώτα τον συγχρονισμό: «Μέλη και κωδικός»")); if (!sheet) A.group(); return; } share({ title: d(g.name), text: inviteText(g) }); },
   gCopy: () => { const c = G().code, ok = () => toast(x("Код скопирован", "Code copied", "Ο κωδικός αντιγράφηκε")); try { navigator.clipboard.writeText(c).then(ok, () => {}); } catch (e) {} },
-  gDel: () => {
+  gDel: async () => {
     if (Object.keys(S.groups).length < 2) { toast(x("Нужна хотя бы одна компания: сначала создайте другую", "You need at least one group: create another first", "Χρειάζεται τουλάχιστον μία ομάδα: δημιουργήστε πρώτα άλλη")); return; }
     if (!sheet.confirmGDel) { sheet.confirmGDel = true; sheet.rerender = true; render(); return; }
-    delete S.groups[S.gid]; S.gid = Object.keys(S.groups)[0]; sheet = null; save(); toast(x("Компания удалена", "Group deleted", "Η ομάδα διαγράφηκε"));
+    const k = S.gid, g = S.groups[k];
+    if (g.sync) { if (!sy) { offlineToast(); return; } try { await sy.leave(g.code); } catch (e) { offlineToast(); return; } if (unsubs[k]) { unsubs[k](); delete unsubs[k]; } }
+    delete S.groups[k]; S.gid = Object.keys(S.groups)[0]; sheet = null; save(); toast(x("Вы вышли из компании", "You left the group", "Αποχωρήσατε από την ομάδα"));
   },
   close: () => { if (spinning || (sheet && sheet.kind === "consent")) return; sheet = null; save(); },
   scrim: () => {}
@@ -519,8 +596,8 @@ document.addEventListener("change", ev => {
   const go = $("#cGo"); if (go) go.disabled = !(sheet.age && sheet.data);
 });
 document.addEventListener("input", ev => {
-  if (ev.target.id === "pName") { S.profile.name = ev.target.value.slice(0, 20); persist(); }
-  if (ev.target.id === "gRen" && ev.target.value.trim()) { G().name = ev.target.value.slice(0, 40); persist(); }
+  if (ev.target.id === "pName") { S.profile.name = ev.target.value.slice(0, 20); persist(); pushProfile(); }
+  if (ev.target.id === "gRen" && ev.target.value.trim()) { const g = G(); g.name = ev.target.value.slice(0, 40); persist(); if (sy && g.sync) { clearTimeout(profT); profT = setTimeout(() => sy.renameGroup(g.code, g.name).catch(() => {}), 800); } }
 });
 
 // Swipe a sheet down to close it (works when the sheet is scrolled to the top; the handle at the top also closes it with a tap).
@@ -546,6 +623,7 @@ function endDrag() {
 document.addEventListener("touchend", endDrag); document.addEventListener("touchcancel", endDrag);
 document.addEventListener("keydown", ev => { if (ev.key === "Escape" && sheet) A.close(); if (ev.key === "Enter" && ev.target.id === "newOpt") A.addOpt(); });
 render();
+startSync();
 
 // Native bits (Android back button). Loaded lazily so the app also runs in a plain browser.
 import("./native.js").then(m => m.init({ onShared, close: () => A.close(), isOpen: () => !!sheet && sheet.kind !== "consent", home: () => S.tab !== "today" ? A.goto("today") : false })).catch(() => {});

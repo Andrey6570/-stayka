@@ -1,0 +1,40 @@
+rules_version = '2';
+// Stayka: a group is a document whose id is its secret invite code. Whoever knows the code can join; members can read and write the group's data.
+// Nobody can list groups, so codes cannot be enumerated. Every user is an anonymous-auth account.
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() { return request.auth != null; }
+    function member(gid) { return signedIn() && exists(/databases/$(db)/documents/groups/$(gid)/members/$(request.auth.uid)); }
+    function shortStr(v, n) { return v is string && v.size() <= n; }
+
+    match /groups/{gid} {
+      allow get: if member(gid);
+      allow create: if signedIn() && gid.matches('^[A-Z2-9]{8}$')
+        && request.resource.data.keys().hasOnly(['name', 'owner', 'createdAt'])
+        && shortStr(request.resource.data.name, 40) && request.resource.data.owner == request.auth.uid;
+      allow update: if member(gid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+        && shortStr(request.resource.data.name, 40);
+
+      match /members/{uid} {
+        allow read: if member(gid);
+        // Joining = creating your own member document; the group must exist (knowing the 8-character id is the invitation).
+        allow create: if signedIn() && request.auth.uid == uid && exists(/databases/$(db)/documents/groups/$(gid))
+          && request.resource.data.keys().hasOnly(['name', 'avatar', 'joinedAt'])
+          && shortStr(request.resource.data.name, 20) && shortStr(request.resource.data.avatar, 40000);
+        allow update: if signedIn() && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['name', 'avatar', 'joinedAt'])
+          && shortStr(request.resource.data.name, 20) && shortStr(request.resource.data.avatar, 40000);
+        allow delete: if signedIn() && request.auth.uid == uid;
+      }
+      match /state/{doc} {
+        allow read: if member(gid);
+        allow write: if member(gid) && doc in ['lunch', 'poll'] && request.resource.data.size() <= 8;
+      }
+      match /events/{eid} {
+        allow read: if member(gid);
+        allow create, update: if member(gid) && request.resource.data.size() <= 10;
+        allow delete: if member(gid);
+      }
+    }
+  }
+}
