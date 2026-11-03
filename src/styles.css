@@ -47,7 +47,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
 .grow { flex: 1; min-width: 0; }
 
 /* header */
-.head { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg); padding-block: 10px 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.head { position: relative; background: var(--bg); padding-block: 10px 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
 .logo { flex: 1; min-width: 0; font: 700 22px/1 var(--f-display); letter-spacing: -.02em; }
 .logo i { font-style: normal; color: var(--accent); }
 .groups { order: 3; flex: 1 0 100%; display: flex; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
@@ -195,3 +195,12 @@ input[type=search] { background: var(--bg); border: 2px solid var(--line); borde
 .taboo { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font: 500 14px/1.2 var(--f-body); color: var(--bg); }
 .taboo span { opacity: .75; width: 100%; }
 .taboo b { background: color-mix(in srgb, var(--bg) 18%, transparent); border-radius: 10px; padding: 6px 10px; font-weight: 600; }
+
+/* compact action chips and buttons so they stay on one line; the header scrolls away instead of covering content */
+.chipbtn { padding: 0 12px; gap: 5px; white-space: nowrap; }
+.chipbtn.icon { padding: 0; width: 40px; justify-content: center; }
+.maprow { gap: 6px; }
+.hero .btns .btn, .rsvp button { padding-left: 6px; padding-right: 6px; font-size: 15px; }
+.nav { border-top: 1px solid var(--line); }
+.hero .btns { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.hero .btns .btn { line-height: 1.1; }

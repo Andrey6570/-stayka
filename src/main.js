@@ -113,7 +113,7 @@ const SHARE = SVG('<circle cx="6" cy="12" r="2"/><circle cx="18" cy="6" r="2"/><
 function mapRow(id) {
   const t = mapTarget(id); if (!t || !hasPlace(t.geo, t.label)) return "";
   const a = (act, ico, txt) => `<button class="chipbtn" data-act="${act}" data-id="${esc(id)}">${ico}${txt}</button>`;
-  return `<div class="maprow">${a("mapOpen", PIN, x("На карте", "On the map", "Στον χάρτη"))}${a("mapRoute", ROUTE, x("Маршрут", "Directions", "Διαδρομή"))}${a("mapShare", SHARE, x("Поделиться", "Share", "Κοινοποίηση"))}</div>`;
+  return `<div class="maprow">${a("mapOpen", PIN, x("На карте", "On the map", "Στον χάρτη"))}${a("mapRoute", ROUTE, x("Маршрут", "Directions", "Διαδρομή"))}<button class="chipbtn icon" data-act="mapShare" data-id="${esc(id)}" aria-label="${x("Поделиться", "Share", "Κοινοποίηση")}">${SHARE}</button></div>`;
 }
 async function ext(url) { try { (await import("./native.js")).openExternal(url); } catch (e) { window.open(url, "_blank", "noopener"); } }
 async function share(data) {
@@ -200,7 +200,7 @@ function vToday() {
   const g = G(), up = g.events.filter(e => e.date >= iso(0)).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))[0], P = g.poll;
   const lead = P.opts.slice().sort((a, b) => b.votes.length - a.votes.length)[0];
   return lunchCard()
-    + `<div class="card"><div class="eyebrow">${x("Компания", "Group", "Ομάδα")}</div><h3>${esc(d(g.name))}</h3><div class="faces">${g.members.map(id => `<span class="face">${av(id)}${esc(pname(id))}</span>`).join("")}</div><div class="btns"><button class="btn" data-act="gInvite">${x("Пригласить друзей", "Invite friends", "Πρόσκληση φίλων")}</button><button class="btn ghost" data-act="group">${x("Участники и код", "Members and code", "Μέλη και κωδικός")}</button></div></div>`
+    + `<div class="card"><div class="eyebrow">${x("Компания", "Group", "Ομάδα")}</div><h3>${esc(d(g.name))}</h3><div class="faces">${g.members.map(id => `<span class="face">${av(id)}${esc(pname(id))}</span>`).join("")}</div><div class="btns"><button class="btn" data-act="gInvite">${x("Пригласить", "Invite", "Πρόσκληση")}</button><button class="btn ghost" data-act="group">${x("Участники и код", "Members and code", "Μέλη και κωδικός")}</button></div></div>`
     + (up ? `<div class="card"><div class="eyebrow">${x("Ближайшее событие", "Next event", "Επόμενη εκδήλωση")}</div><h3>${esc(d(up.title))}</h3><div class="muted">${esc(fmtDate(up.date).w)}, ${esc(up.time)} · ${esc(d(up.place))}</div><div class="muted">${x("Идут", "Going", "Έρχονται")}: ${Object.values(up.rsvp).filter(v => v === "yes").length}</div>${mapRow("e:" + up.id)}<button class="btn ghost" data-act="goto" data-id="events">${x("Все события", "All events", "Όλες οι εκδηλώσεις")}</button></div>` : "")
     + `<div class="card"><div class="eyebrow">${x("Голосование", "Poll", "Ψηφοφορία")}</div><h3>${esc(d(P.q))}</h3><div class="muted">${lead && lead.votes.length ? x("Лидирует", "Leading", "Προηγείται") + ": " + esc(d(lead.name)) + " (" + lead.votes.length + ")" : x("Голосов пока нет", "No votes yet", "Καμία ψήφος ακόμη")}</div><button class="btn ghost" data-act="goto" data-id="poll">${x("Проголосовать", "Vote", "Ψήφισε")}</button></div>`;
 }
