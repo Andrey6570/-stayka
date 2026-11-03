@@ -2,6 +2,7 @@ package com.andrey6570.stayka;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.View;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -13,6 +14,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(IncomingPlugin.class);
         super.onCreate(savedInstanceState);
+        if (getBridge() != null) getBridge().getWebView().setOverScrollMode(View.OVER_SCROLL_NEVER);
         readShare(getIntent());
     }
 

@@ -204,3 +204,6 @@ input[type=search] { background: var(--bg); border: 2px solid var(--line); borde
 .nav { border-top: 1px solid var(--line); }
 .hero .btns { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .hero .btns .btn { line-height: 1.1; }
+
+/* no rubber-band / stretch effect: it shifted the whole page up on short screens */
+html, body { overscroll-behavior: none; }
