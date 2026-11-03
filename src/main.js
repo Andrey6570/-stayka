@@ -184,7 +184,7 @@ function vPoll() {
 // ---------- events ----------
 function vEvents() {
   const list = G().events.slice().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-  return list.map(e => {
+  return `<button class="btn" data-act="newEvent">＋ ${x("Новое событие", "New event", "Νέα εκδήλωση")}</button>` + (list.map(e => {
     const f = fmtDate(e.date), my = e.rsvp.me, yes = Object.keys(e.rsvp).filter(k => e.rsvp[k] === "yes"), maybe = Object.keys(e.rsvp).filter(k => e.rsvp[k] === "maybe");
     return `<div class="card ev"><div class="date"><b>${f.d}</b><span>${esc(f.m)}</span></div><div class="body">
       <div><h3>${esc(d(e.title))}</h3><div class="muted">${esc(f.w)}${rel(e.date) ? " · " + rel(e.date) : ""}, ${esc(e.time)} · ${esc(d(e.place))}</div></div>
@@ -192,7 +192,7 @@ function vEvents() {
       <div class="faces">${yes.map(id => `<span class="face in">${av(id)}${esc(pname(id))}</span>`).join("")}${maybe.map(id => `<span class="face">${av(id)}${esc(pname(id))} ?</span>`).join("")}${!yes.length && !maybe.length ? `<span class="muted">${x("Пока никто не ответил", "No answers yet", "Καμία απάντηση ακόμη")}</span>` : ""}</div>
       <div class="rsvp">${[["yes", x("Иду", "Going", "Πάω")], ["maybe", x("Может", "Maybe", "Ίσως")], ["no", x("Нет", "No", "Όχι")]].map(([v, t]) => `<button class="${my === v ? "on" : ""}" data-act="rsvp" data-id="${e.id}" data-v="${v}">${t}</button>`).join("")}</div>
     </div></div>`;
-  }).join("") || `<div class="card"><h3>${x("Планов пока нет", "No plans yet", "Δεν υπάρχουν πλάνα ακόμη")}</h3><div class="muted">${x("Добавьте первое событие кнопкой внизу.", "Add the first event with the button below.", "Προσθέστε την πρώτη εκδήλωση με το κουμπί κάτω.")}</div></div>`;
+  }).join("") || `<div class="card"><h3>${x("Планов пока нет", "No plans yet", "Δεν υπάρχουν πλάνα ακόμη")}</h3><div class="muted">${x("Добавьте первое событие кнопкой выше.", "Add the first event with the button above.", "Προσθέστε την πρώτη εκδήλωση με το κουμπί πάνω.")}</div></div>`);
 }
 
 // ---------- today ----------
@@ -411,7 +411,7 @@ function render() {
   const views = { today: vToday, lunch: vLunch, poll: vPoll, events: vEvents, games: vGames }, keep = $("#newOpt") ? $("#newOpt").value : "";
   $("#view").innerHTML = views[S.tab]();
   if ($("#newOpt")) $("#newOpt").value = keep;
-  $("#fabHost").innerHTML = S.tab === "events" ? `<button class="fab" data-act="newEvent">+ ${x("Событие", "Event", "Εκδήλωση")}</button>` : "";
+  $("#fabHost").innerHTML = "";
   if (sheet) {
     if (!$("#sheetHost .scrim") || sheet.rerender) {
       const bodies = { consent: sConsent, profile: sProfile, policy: sPolicy, mydata: sMyData, age: sAge, game: sGame, lunch: sLunch, event: sEvent, wheel: sWheel, newgroup: sNewGroup, group: sGroup, shared: sShared };

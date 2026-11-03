@@ -47,11 +47,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
 .grow { flex: 1; min-width: 0; }
 
 /* header */
-.head { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg); padding-block: 12px 10px; display: flex; align-items: center; gap: 10px; }
-.logo { font: 700 22px/1 var(--f-display); letter-spacing: -.02em; }
+.head { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg); padding-block: 10px 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.logo { flex: 1; min-width: 0; font: 700 22px/1 var(--f-display); letter-spacing: -.02em; }
 .logo i { font-style: normal; color: var(--accent); }
-.groups { display: flex; gap: 6px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.groups > :first-child { margin-left: auto; }
+.groups { order: 3; flex: 1 0 100%; display: flex; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .gchip { white-space: nowrap; padding: 8px 14px; border-radius: 999px; background: var(--surface2); font-weight: 500; font-size: 14px; min-height: 40px; }
 .gchip.on { background: var(--ink); color: var(--bg); }
 .me { flex: none; width: 44px; height: 44px; border-radius: 50%; padding: 0; overflow: hidden; display: grid; place-items: center; }
@@ -121,7 +120,9 @@ input[type=text], input[type=date], input[type=time] { background: var(--bg); bo
 .chk { display: flex; gap: 12px; align-items: flex-start; font-size: 15px; color: var(--ink); font-weight: 400; flex-direction: row; }
 .chk input { width: 24px; height: 24px; margin: 0; flex: none; accent-color: var(--accent); }
 .avbig { width: 96px; height: 96px; font-size: 40px; margin: 0 auto; }
-.langs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.langs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.langs .btn { padding: 6px 4px; min-width: 0; line-height: 1.15; overflow-wrap: anywhere; }
+.btn { min-width: 0; }
 details { background: var(--surface2); border-radius: 14px; padding: 12px; }
 summary { font-weight: 600; cursor: pointer; }
 details p { margin-top: 8px; font-size: 14px; }
@@ -145,7 +146,7 @@ label { font-size: 13px; font-weight: 600; color: var(--muted); display: flex; f
 .wheelbox svg { width: 100%; height: auto; display: block; }
 #wheel { transform-origin: 150px 150px; transition: transform 4s cubic-bezier(.12,.7,.1,1); }
 .ptr { position: absolute; left: 50%; top: -8px; transform: translateX(-50%); border-left: 13px solid transparent; border-right: 13px solid transparent; border-top: 26px solid var(--ink); }
-.toast { position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 16px); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 14px; font-weight: 500; opacity: 0; pointer-events: none; transition: .25s; z-index: 60; max-width: 90vw; text-align: center; }
+.toast { position: fixed; left: 50%; top: calc(12px + env(safe-area-inset-top, 0px)); transform: translate(-50%, -16px); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 14px; font-weight: 500; opacity: 0; pointer-events: none; transition: .25s; z-index: 60; max-width: 90vw; text-align: center; }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 .note { font-size: 12px; text-align: center; color: var(--muted); padding: 8px 0 0; }
 @media (prefers-reduced-motion: reduce) { #wheel { transition-duration: .01s; } .opt .fill, .toast, .sw .track, .sw .track::after { transition: none; } }
@@ -157,7 +158,7 @@ label { font-size: 13px; font-weight: 600; color: var(--muted); display: flex; f
 .grab:hover::after { background: var(--muted); }
 
 /* groups */
-.gchip.add { flex: none; min-width: 40px; padding: 8px 12px; font-size: 18px; line-height: 1; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.gchip.add { flex: none; width: 44px; height: 44px; min-height: 44px; display: grid; place-items: center; padding: 8px 12px; font-size: 18px; line-height: 1; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
 .code { font: 700 28px/1 var(--f-display); letter-spacing: .14em; text-align: center; background: var(--surface2); border-radius: 14px; padding: 14px 8px; user-select: all; }
 .divider { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
 input[type=search] { background: var(--bg); border: 2px solid var(--line); border-radius: 12px; padding: 8px 12px; min-height: 48px; width: 100%; min-width: 0; }
