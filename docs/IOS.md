@@ -1,6 +1,6 @@
 # Стайка на iPhone
 
-Apple разрешает ставить приложения на iPhone только с подписью, поэтому вариантов три. Начните с первого: он работает прямо сейчас, без аккаунта Apple.
+Apple разрешает ставить приложения на iPhone только с подписью, поэтому вариантов три. Платный аккаунт у вас есть, поэтому основной путь — вариант 3 (TestFlight); варианты 1 и 2 работают без аккаунта.
 
 ## 1. Веб-версия на экране «Домой» (без Apple ID, бесплатно)
 
@@ -19,9 +19,18 @@ Workflow «iOS app» собирает `stayka-unsigned.ipa` и кладёт в �
 - **AltStore** (https://altstore.io) или **Sideloadly** (https://sideloadly.io): подключите iPhone, выберите файл `.ipa`, войдите своим Apple ID. Подпись живёт 7 дней, AltStore обновляет её сам, пока компьютер в той же сети.
 - В iOS 16+ включите **Настройки → Конфиденциальность и безопасность → Режим разработчика**.
 
-## 3. TestFlight / App Store (платный Apple Developer, 99 $ в год)
+## 3. TestFlight (платный аккаунт Apple Developer): настроено
 
-Нужны: аккаунт Apple Developer, сертификат распространения, профиль provisioning, ключ App Store Connect. Тогда в workflow вместо неподписанной сборки делается `xcodebuild archive` с подписью и `xcodebuild -exportArchive`, а загрузка в TestFlight идёт через `xcrun altool` / `fastlane pilot`. Для этого понадобятся секреты репозитория (сертификат `.p12`, пароль, профиль, ключ API). Скажите, когда аккаунт будет, и я настрою.
+Workflow **«iOS to TestFlight»** (`.github/workflows/ios-testflight.yml`) собирает приложение, подписывает облачной подписью Apple и загружает в TestFlight. Работает так же, как у Talent Foxes. Один раз нужно:
+
+1. **Приложение в App Store Connect:** App Store Connect → Apps → «+» → New App. Платформа iOS, имя «Стайка», **Bundle ID `com.andrey6570.stayka`** (если его нет в списке, сначала создайте в developer.apple.com → Identifiers), SKU любой, например `stayka`.
+2. **Четыре секрета** в репозитории Стайки (Settings → Secrets and variables → Actions → New repository secret). Значения те же, что в репозитории Talent Foxes, ключ API Apple общий для всего аккаунта:
+   - `APPLE_TEAM_ID`: Team ID (developer.apple.com → Membership details);
+   - `ASC_KEY_ID`, `ASC_ISSUER_ID`: из App Store Connect → Users and Access → Integrations → Keys;
+   - `ASC_KEY_P8`: текст файла `.p8` целиком (его скачивают один раз; если файла нет, создайте новый ключ с ролью App Manager или Admin).
+3. **Запуск:** Actions → «iOS to TestFlight» → Run workflow. Через 10–20 минут сборка появится в App Store Connect → TestFlight (сначала со статусом обработки), её можно ставить через приложение TestFlight на iPhone, для себя как внутренний тестер.
+
+Для внешних тестировщиков и публикации в App Store понадобятся адрес политики конфиденциальности (сейчас в приложении это черновик с незаполненными контактами), описание, скриншоты и анкета о данных.
 
 ## Что отличается от Android
 
