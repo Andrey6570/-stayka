@@ -692,3 +692,6 @@ startSync();
 
 // Native bits (Android back button). Loaded lazily so the app also runs in a plain browser.
 import("./native.js").then(m => m.init({ onShared, close: () => A.close(), isOpen: () => !!sheet && sheet.kind !== "consent", home: () => S.tab !== "today" ? A.goto("today") : false })).catch(() => {});
+
+// Browser / home-screen version: keep a copy for offline use. Not inside the Android/iOS app, which bundles its files.
+if ("serviceWorker" in navigator && location.protocol === "https:" && !(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())) navigator.serviceWorker.register("./sw.js").catch(() => {});

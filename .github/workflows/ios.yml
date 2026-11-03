@@ -1,0 +1,59 @@
+name: iOS app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm test
+      - name: Build web app and sync into the iOS project
+        run: |
+          npx vite build
+          npx cap sync ios
+
+      # No Apple signing here: this makes an UNSIGNED .ipa that is signed on your own device by AltStore / Sideloadly (free Apple ID, 7 days)
+      # or by your own certificate. See docs/IOS.md for TestFlight with a paid Apple Developer account.
+      - name: Build unsigned archive
+        working-directory: ios/App
+        run: |
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Stayka.xcarchive" \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            archive
+
+      - name: Package .ipa
+        run: |
+          mkdir -p Payload
+          cp -R "$RUNNER_TEMP/Stayka.xcarchive/Products/Applications/App.app" Payload/
+          zip -qry stayka-unsigned.ipa Payload
+          ls -la stayka-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stayka-ios-unsigned
+          path: stayka-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Publish the .ipa as the latest iOS release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest-ios --yes --cleanup-tag || true
+          gh release create latest-ios stayka-unsigned.ipa \
+            --title "Стайка для iPhone, сборка №${GITHUB_RUN_NUMBER}" \
+            --notes "Неподписанный .ipa из коммита ${GITHUB_SHA::7}. Установка: docs/IOS.md" \
+            --target "$GITHUB_SHA"
